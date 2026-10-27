@@ -15,8 +15,10 @@ param(
 $ErrorActionPreference = 'Stop'
 $codigo = $PSScriptRoot
 $git = Join-Path (Split-Path $codigo -Parent) 'herramientas\git\cmd\git.exe'
+if (-not (Test-Path $git)) { $git = 'git' }   # en GitHub Actions se usa el git del sistema
 $vcpkg = Join-Path $codigo 'vendor\vcpkg'
 $api = @{ 'User-Agent' = 'picotorrent-propio' }
+if ($env:GITHUB_TOKEN) { $api['Authorization'] = "Bearer $env:GITHUB_TOKEN" }
 
 if (-not $Version) {
     $ultima = Invoke-RestMethod -Uri 'https://api.github.com/repos/microsoft/vcpkg/releases/latest' -Headers $api
@@ -24,10 +26,13 @@ if (-not $Version) {
     Write-Host ("Última versión publicada de vcpkg: {0} ({1:yyyy-MM-dd})" -f $Version, [datetime]$ultima.published_at)
 }
 
+# Se compara por commit, así funciona aunque la copia de vcpkg no tenga las etiquetas (como en GitHub Actions)
+$commitNuevo = (Invoke-RestMethod -Uri "https://api.github.com/repos/microsoft/vcpkg/commits/$Version" -Headers $api).sha
+$commitActual = (& $git -C $vcpkg rev-parse HEAD).Trim()
 $actual = (& $git -C $vcpkg describe --tags --exact-match 2>$null)
-if (-not $actual) { $actual = (& $git -C $vcpkg rev-parse --short HEAD) }
+if (-not $actual) { $actual = $commitActual.Substring(0, 10) }
 Write-Host "Versión que usa nuestra compilación: $actual"
-if ($actual -eq $Version) { Write-Host 'No hay nada que actualizar.' -ForegroundColor Green; return }
+if ($commitActual -eq $commitNuevo) { Write-Host 'No hay nada que actualizar.' -ForegroundColor Green; return }
 if ($SoloRevisar) { Write-Host "Hay una versión nueva: $Version" -ForegroundColor Yellow; return }
 
 & $git -C $vcpkg fetch --depth 1 origin tag $Version

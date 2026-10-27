@@ -2,13 +2,14 @@
 # Los textos salen de lo que instaló vcpkg (share\<paquete>\copyright) y de los submódulos (vendor\...),
 # así que siempre corresponden a las versiones compiladas. Lo llama compilar.ps1 después de compilar.
 param(
-    [string]$Build = (Join-Path $PSScriptRoot 'build-x64'),
+    [string]$Build,
     [Parameter(Mandatory = $true)][string]$Salida,
     [string]$Version = ''
 )
 
 $ErrorActionPreference = 'Stop'
 $codigo = $PSScriptRoot
+if (-not $Build) { $Build = Join-Path $codigo 'build-x64' }
 $share = Join-Path $Build 'vcpkg_installed\x64-windows-static-md-rel\share'
 $wx = Join-Path $codigo 'vendor\wx'
 

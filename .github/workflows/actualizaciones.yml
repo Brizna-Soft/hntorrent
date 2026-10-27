@@ -1,0 +1,117 @@
+# Cada lunes revisa si salió una libtorrent 2.0.x nueva o una versión nueva de vcpkg (Boost, OpenSSL y demás).
+# Si hay algo nuevo: lo aplica, sube el número de versión (version.txt), compila, guarda el cambio en la
+# rama version-propia y publica una "Release" en este repositorio privado.
+# Si no hay nada nuevo, termina en un par de minutos. También se puede lanzar a mano desde la pestaña Actions.
+name: Revisar actualizaciones
+
+on:
+  schedule:
+    - cron: '17 12 * * 1'   # lunes a las 12:17 UTC (6:17 a. m. en Honduras)
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: actualizaciones
+  cancel-in-progress: false
+
+jobs:
+  revisar:
+    name: Revisar libtorrent y vcpkg
+    runs-on: windows-2022
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Traer solo vcpkg
+        shell: powershell
+        run: git submodule update --init --depth 1 vendor/vcpkg
+
+      - name: Buscar versiones nuevas
+        id: buscar
+        shell: powershell
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          $api = @{ 'User-Agent' = 'brizna'; 'Authorization' = "Bearer $env:GITHUB_TOKEN" }
+          $ltAntes = (Get-Content -Raw vendor\vcpkg-overlays\ports\libtorrent\vcpkg.json | ConvertFrom-Json).version
+          $vcAntes = (git -C vendor\vcpkg rev-parse HEAD).Trim()
+          .\actualizar-libtorrent.ps1
+          .\actualizar-vcpkg.ps1
+          $ltDespues = (Get-Content -Raw vendor\vcpkg-overlays\ports\libtorrent\vcpkg.json | ConvertFrom-Json).version
+          $vcDespues = (git -C vendor\vcpkg rev-parse HEAD).Trim()
+          $cambios = @()
+          if ($ltAntes -ne $ltDespues) { $cambios += "libtorrent $ltAntes -> $ltDespues" }
+          if ($vcAntes -ne $vcDespues) {
+            $tag = (Invoke-RestMethod -Uri 'https://api.github.com/repos/microsoft/vcpkg/releases/latest' -Headers $api).tag_name
+            $cambios += "vcpkg $tag (Boost, OpenSSL y demas)"
+          }
+          if ($cambios.Count -eq 0) {
+            'hay=no' | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+            Write-Host 'Todo al dia: no hay versiones nuevas.'
+            exit 0
+          }
+          $v = (Get-Content version.txt -TotalCount 1).Trim().Split('.')
+          $nueva = '{0}.{1}.{2}' -f $v[0], $v[1], ([int]$v[2] + 1)
+          Set-Content -Path version.txt -Value $nueva -Encoding ascii
+          'hay=si' | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "version=$nueva" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "cambios=$($cambios -join '; ')" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          Write-Host "Hay cambios: $($cambios -join '; ') -> Brizna $nueva"
+
+      - name: Traer el resto del código
+        if: steps.buscar.outputs.hay == 'si'
+        shell: powershell
+        run: git submodule update --init --recursive --depth 1
+
+      - name: Carpetas de caché de vcpkg
+        if: steps.buscar.outputs.hay == 'si'
+        shell: powershell
+        run: |
+          "VCPKG_DEFAULT_BINARY_CACHE=$env:RUNNER_TEMP\vcpkg-binarios" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "VCPKG_DOWNLOADS=$env:RUNNER_TEMP\vcpkg-descargas" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Recuperar bibliotecas ya compiladas
+        if: steps.buscar.outputs.hay == 'si'
+        uses: actions/cache/restore@v6
+        with:
+          path: ${{ env.VCPKG_DEFAULT_BINARY_CACHE }}
+          key: vcpkg-bin-${{ github.run_id }}
+          restore-keys: vcpkg-bin-
+
+      - name: Compilar la versión nueva
+        if: steps.buscar.outputs.hay == 'si'
+        shell: powershell
+        run: .\compilar.ps1 -SinCopiar -Publicacion
+
+      - name: Guardar bibliotecas compiladas
+        if: always() && steps.buscar.outputs.hay == 'si'
+        uses: actions/cache/save@v6
+        with:
+          path: ${{ env.VCPKG_DEFAULT_BINARY_CACHE }}
+          key: vcpkg-bin-${{ github.run_id }}
+
+      - name: Empaquetar
+        if: steps.buscar.outputs.hay == 'si'
+        shell: powershell
+        run: .\empaquetar.ps1 -Salida "$env:RUNNER_TEMP\paquete"
+
+      - name: Guardar el cambio y publicar la versión
+        if: steps.buscar.outputs.hay == 'si'
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.buscar.outputs.version }}
+          CAMBIOS: ${{ steps.buscar.outputs.cambios }}
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m "Brizna $env:VERSION`: $env:CAMBIOS"
+          git push origin HEAD:version-propia
+          if ($LASTEXITCODE -ne 0) { throw 'No se pudo guardar el cambio en version-propia' }
+          $archivos = (Get-ChildItem "$env:RUNNER_TEMP\paquete\*").FullName
+          $notas = "Actualizacion automatica de la revision semanal.`n`n$env:CAMBIOS"
+          gh release create "v$env:VERSION" $archivos --title "Brizna $env:VERSION" --notes $notas --target (git rev-parse HEAD)
+          if ($LASTEXITCODE -ne 0) { throw 'No se pudo publicar la version' }

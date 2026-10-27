@@ -21,6 +21,7 @@ $puerto = Join-Path $codigo 'vendor\vcpkg-overlays\ports\libtorrent'
 $manifiesto = Join-Path $puerto 'vcpkg.json'
 $portfile = Join-Path $puerto 'portfile.cmake'
 $api = @{ 'User-Agent' = 'picotorrent-propio' }
+if ($env:GITHUB_TOKEN) { $api['Authorization'] = "Bearer $env:GITHUB_TOKEN" }   # en GitHub Actions, para no chocar con el límite de la API
 
 $actual = (Get-Content -Raw $manifiesto | ConvertFrom-Json).version
 

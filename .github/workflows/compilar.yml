@@ -1,0 +1,80 @@
+# Compila Brizna cada vez que se sube un cambio a la rama version-propia (o a mano desde la pestaña Actions).
+# Deja el .zip como "artefacto" de la ejecución durante 14 días. No publica nada.
+name: Compilar
+
+on:
+  push:
+    branches: [version-propia]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: compilar-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  compilar:
+    name: Compilar Brizna (x64)
+    # windows-2022 trae Visual Studio 2022 17.14, igual que la PC; windows-latest ya trae VS 2026.
+    runs-on: windows-2022
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: recursive
+
+      - name: Carpetas de caché de vcpkg
+        shell: powershell
+        run: |
+          "VCPKG_DEFAULT_BINARY_CACHE=$env:RUNNER_TEMP\vcpkg-binarios" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "VCPKG_DOWNLOADS=$env:RUNNER_TEMP\vcpkg-descargas" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Recuperar bibliotecas ya compiladas
+        uses: actions/cache/restore@v6
+        with:
+          path: ${{ env.VCPKG_DEFAULT_BINARY_CACHE }}
+          key: vcpkg-bin-${{ github.run_id }}
+          restore-keys: vcpkg-bin-
+
+      - name: Contar bibliotecas guardadas
+        id: antes
+        shell: powershell
+        run: |
+          $n = @(Get-ChildItem $env:VCPKG_DEFAULT_BINARY_CACHE -Recurse -File -ErrorAction SilentlyContinue).Count
+          "n=$n" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+
+      - name: Compilar
+        shell: powershell
+        run: .\compilar.ps1 -SinCopiar
+
+      - name: Ver si vcpkg compiló bibliotecas nuevas
+        id: despues
+        if: always()
+        shell: powershell
+        run: |
+          $n = @(Get-ChildItem $env:VCPKG_DEFAULT_BINARY_CACHE -Recurse -File -ErrorAction SilentlyContinue).Count
+          $nuevas = if ($n -gt [int]'${{ steps.antes.outputs.n }}') { 'si' } else { 'no' }
+          "nuevas=$nuevas" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+
+      # Solo se guarda la caché si cambió, para no gastar minutos ni espacio
+      - name: Guardar bibliotecas compiladas
+        if: always() && steps.despues.outputs.nuevas == 'si'
+        uses: actions/cache/save@v6
+        with:
+          path: ${{ env.VCPKG_DEFAULT_BINARY_CACHE }}
+          key: vcpkg-bin-${{ github.run_id }}
+
+      - name: Empaquetar
+        shell: powershell
+        run: .\empaquetar.ps1 -Salida "$env:RUNNER_TEMP\paquete"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: Brizna-x64
+          path: ${{ runner.temp }}\paquete\*
+          retention-days: 14
