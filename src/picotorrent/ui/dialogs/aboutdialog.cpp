@@ -81,7 +81,7 @@ AboutDialog::AboutDialog(wxWindow* parent, wxWindowID id)
     lv->SetItem(lv->GetItemCount() - 1, 1, wxVERSION_NUM_DOT_STRING_T);
     lv->SetItem(lv->GetItemCount() - 1, 2, "-");
 
-    auto desc = new wxTextCtrl(this, wxID_ANY, wxEmptyString, wxDefaultPosition, FromDIP(wxSize(-1, 90)), wxTE_MULTILINE | wxTE_READONLY);
+    auto desc = new wxTextCtrl(this, wxID_ANY, wxEmptyString, wxDefaultPosition, FromDIP(wxSize(-1, 120)), wxTE_MULTILINE | wxTE_READONLY);
     desc->AppendText(i18n("picotorrent_description"));
     desc->AppendText("\n\n");
     desc->AppendText(i18n("based_on_picotorrent_long"));
@@ -111,7 +111,7 @@ AboutDialog::AboutDialog(wxWindow* parent, wxWindowID id)
     sizer->Add(footerSizer, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, border);
 
     this->SetSizerAndFit(sizer);
-    this->SetSize(FromDIP(wxSize(340, 520)));
+    this->SetSize(FromDIP(wxSize(340, 550)));
 }
 
 AboutDialog::~AboutDialog()
