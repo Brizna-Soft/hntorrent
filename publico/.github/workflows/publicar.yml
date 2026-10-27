@@ -1,0 +1,50 @@
+# Este archivo vive en el repositorio público Brizna-Soft/brizna-descargas (se copia desde
+# publico/ del repositorio privado en cada publicación). Cuando llega una versión nueva,
+# comprueba su firma y la publica como Release, que es de donde la baja el actualizador de Brizna.
+name: Publicar versión
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  publicar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Comprobar la firma
+        id: version
+        run: |
+          set -euo pipefail
+          if [ ! -f actualizacion.json ]; then echo "No hay ninguna versión para publicar."; echo "hay=no" >> "$GITHUB_OUTPUT"; exit 0; fi
+          version=$(jq -r .version actualizacion.json)
+          sha=$(jq -r .sha256 actualizacion.json)
+          firma=$(jq -r .firma actualizacion.json)
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "Versión inválida: $version"; exit 1; }
+          echo "$sha  Brizna-$version-x64.zip" | sha256sum -c -
+          printf 'brizna-actualizacion-v1\nversion=%s\nsha256=%s\n' "$version" "$sha" > mensaje.txt
+          python3 -c 'import sys; sys.stdout.buffer.write(bytes.fromhex(sys.argv[1]))' "$firma" > firma.bin
+          cat > publica.pem <<'EOF'
+          -----BEGIN PUBLIC KEY-----
+          MCowBQYDK2VwAyEAx2Lihu4swk9jIXSv/KklFJkr+RDRd0oLiUI57fCHaz8=
+          -----END PUBLIC KEY-----
+          EOF
+          sed -i 's/^ *//' publica.pem
+          openssl pkeyutl -verify -pubin -inkey publica.pem -rawin -in mensaje.txt -sigfile firma.bin
+          echo "hay=si" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Crear la Release
+        if: steps.version.outputs.hay == 'si'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          if gh release view "v$VERSION" > /dev/null 2>&1; then echo "v$VERSION ya estaba publicada."; exit 0; fi
+          gh release create "v$VERSION" "Brizna-$VERSION-x64.zip" actualizacion.json SHA256SUMS.txt AVISOS-DE-TERCEROS.txt \
+            --title "Brizna $VERSION" --notes-file NOTAS.txt --target "$GITHUB_SHA"

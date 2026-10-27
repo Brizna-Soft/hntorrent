@@ -138,19 +138,41 @@ jobs:
           gh release create "v$env:VERSION" $archivos --title "Brizna $env:VERSION" --notes $notas --target (git rev-parse HEAD)
           if ($LASTEXITCODE -ne 0) { throw 'No se pudo publicar la version' }
 
-      - name: Publicar en el repositorio público de descargas
+      # Sube README, su flujo de publicación y la versión firmada al repositorio público con una
+      # "deploy key" que solo puede escribir ahí. Allí otro flujo comprueba la firma y crea la Release.
+      - name: Subir al repositorio público de descargas
         if: steps.buscar.outputs.hay == 'si'
         shell: powershell
         env:
-          GH_TOKEN: ${{ secrets.PUBLICAR_TOKEN }}
+          LLAVE: ${{ secrets.DESCARGAS_DEPLOY_KEY }}
           VERSION: ${{ steps.buscar.outputs.version }}
           CAMBIOS: ${{ steps.buscar.outputs.cambios }}
         run: |
-          if (-not $env:GH_TOKEN) {
-            Write-Host '::warning::Falta el secreto PUBLICAR_TOKEN: la version quedo solo en el repositorio privado.'
+          if (-not $env:LLAVE) {
+            Write-Host '::warning::Falta el secreto DESCARGAS_DEPLOY_KEY: la version quedo solo en el repositorio privado.'
             exit 0
           }
-          $archivos = (Get-ChildItem "$env:RUNNER_TEMP\paquete\*").FullName
-          $notas = "Brizna $env:VERSION`n`n$env:CAMBIOS`n`nCada archivo esta firmado: Brizna comprueba la firma antes de instalar una actualizacion."
-          gh release create "v$env:VERSION" $archivos --repo $env:REPO_DESCARGAS --title "Brizna $env:VERSION" --notes $notas
-          if ($LASTEXITCODE -ne 0) { throw 'No se pudo publicar en el repositorio de descargas' }
+          $ssh = Join-Path $env:RUNNER_TEMP 'ssh'
+          New-Item -ItemType Directory -Force $ssh | Out-Null
+          $llave = Join-Path $ssh 'descargas'
+          [IO.File]::WriteAllText($llave, (($env:LLAVE.Trim()) -replace "`r`n", "`n") + "`n")
+          icacls $llave /inheritance:r /grant:r "$($env:USERNAME):(R)" | Out-Null
+          $meta = Invoke-RestMethod -Uri 'https://api.github.com/meta' -Headers @{ 'User-Agent' = 'brizna' }
+          $hosts = Join-Path $ssh 'known_hosts'
+          [IO.File]::WriteAllLines($hosts, [string[]]($meta.ssh_keys | ForEach-Object { "github.com $_" }))
+          $env:GIT_SSH_COMMAND = "C:/Windows/System32/OpenSSH/ssh.exe -i '$($llave -replace '\\', '/')' -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile='$($hosts -replace '\\', '/')'"
+          $publico = Join-Path $env:RUNNER_TEMP 'publico'
+          New-Item -ItemType Directory -Force $publico | Out-Null
+          Copy-Item -Recurse -Force publico\* $publico
+          Copy-Item -Force "$env:RUNNER_TEMP\paquete\*" $publico
+          $notas = "Brizna $env:VERSION`n`n$env:CAMBIOS`n`nCada archivo esta firmado: Brizna comprueba la firma antes de instalar una actualizacion.`n"
+          [IO.File]::WriteAllText((Join-Path $publico 'NOTAS.txt'), $notas)
+          git -C $publico init -q -b main
+          git -C $publico config user.name 'github-actions[bot]'
+          git -C $publico config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git -C $publico add -A
+          git -C $publico commit -q -m "Brizna $env:VERSION"
+          git -C $publico push --force "git@github.com:$env:REPO_DESCARGAS.git" main
+          $resultado = $LASTEXITCODE
+          Remove-Item -Recurse -Force $ssh
+          if ($resultado -ne 0) { throw 'No se pudo subir al repositorio de descargas' }
