@@ -86,7 +86,7 @@ PreferencesDialog::PreferencesDialog(wxWindow* parent, std::shared_ptr<pt::Core:
         {
             if (wxMessageBox(
                     i18n("restore_defaults_description"),
-                    "PicoTorrent",
+                    "Brizna",
                     wxICON_WARNING | wxYES_NO | wxNO_DEFAULT) == wxYES)
             {
                 cfg->RestoreDefaults();

@@ -8,10 +8,13 @@
 #include <nlohmann/json.hpp>
 #include <openssl/opensslv.h>
 #include <sqlite3.h>
+#include <wx/filename.h>
 #include <wx/hyperlink.h>
 #include <wx/listctrl.h>
 #include <wx/statbmp.h>
 #include <wx/sizer.h>
+#include <wx/stdpaths.h>
+#include <wx/utils.h>
 #include <wx/version.h>
 
 #include "../../buildinfo.hpp"
@@ -62,7 +65,7 @@ AboutDialog::AboutDialog(wxWindow* parent, wxWindowID id)
     lv->SetItem(lv->GetItemCount() - 1, 1, "-");
     lv->SetItem(lv->GetItemCount() - 1, 2, "-");
 
-    lv->InsertItem(lv->GetItemCount(), "PicoTorrent");
+    lv->InsertItem(lv->GetItemCount(), "Brizna");
     lv->SetItem(lv->GetItemCount() - 1, 1, BuildInfo::semver());
     lv->SetItem(lv->GetItemCount() - 1, 2, BuildInfo::commitish());
 
@@ -78,13 +81,24 @@ AboutDialog::AboutDialog(wxWindow* parent, wxWindowID id)
     lv->SetItem(lv->GetItemCount() - 1, 1, wxVERSION_NUM_DOT_STRING_T);
     lv->SetItem(lv->GetItemCount() - 1, 2, "-");
 
-    auto desc = new wxTextCtrl(this, wxID_ANY, wxEmptyString, wxDefaultPosition, wxDefaultSize, wxTE_MULTILINE | wxTE_READONLY);
+    auto desc = new wxTextCtrl(this, wxID_ANY, wxEmptyString, wxDefaultPosition, FromDIP(wxSize(-1, 90)), wxTE_MULTILINE | wxTE_READONLY);
     desc->AppendText(i18n("picotorrent_description"));
+    desc->AppendText("\n\n");
+    desc->AppendText(i18n("based_on_picotorrent_long"));
+    desc->AppendText("\n");
+    desc->AppendText(i18n("made_with_ai_help"));
+
+    // The third-party licenses file sits next to the executable
+    wxFileName notices(wxStandardPaths::Get().GetExecutablePath());
+    notices.SetFullName("AVISOS-DE-TERCEROS.txt");
+
+    auto noticesLink = new wxHyperlinkCtrl(this, wxID_ANY, i18n("third_party_notices"), notices.GetFullPath());
+    noticesLink->Bind(wxEVT_HYPERLINK, [](wxHyperlinkEvent& evt) { wxLaunchDefaultApplication(evt.GetURL()); });
 
     auto footerSizer = new wxBoxSizer(wxHORIZONTAL);
-    footerSizer->Add(new wxStaticText(this, wxID_ANY, i18n("copyright_text")));
+    footerSizer->Add(new wxHyperlinkCtrl(this, wxID_ANY, i18n("picotorrent_on_github"), "https://github.com/picotorrent/picotorrent"));
     footerSizer->AddStretchSpacer();
-    footerSizer->Add(new wxHyperlinkCtrl(this, wxID_ANY, "https://picotorrent.org", "https://picotorrent.org?app"));
+    footerSizer->Add(noticesLink);
 
     auto border = FromDIP(11);
     auto sizer = new wxBoxSizer(wxVERTICAL);
@@ -97,7 +111,7 @@ AboutDialog::AboutDialog(wxWindow* parent, wxWindowID id)
     sizer->Add(footerSizer, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, border);
 
     this->SetSizerAndFit(sizer);
-    this->SetSize(FromDIP(wxSize(300, 450)));
+    this->SetSize(FromDIP(wxSize(340, 520)));
 }
 
 AboutDialog::~AboutDialog()

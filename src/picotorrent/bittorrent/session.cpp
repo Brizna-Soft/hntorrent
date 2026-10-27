@@ -227,12 +227,12 @@ static lt::settings_pack getSettingsPack(std::shared_ptr<pt::Core::Configuration
 
     // Calculate user agent
     std::stringstream user_agent;
-    user_agent << "PicoTorrent/" << pt::BuildInfo::version();
+    user_agent << "Brizna/" << pt::BuildInfo::version();
 
     // Calculate peer id
     semver::version v(pt::BuildInfo::version());
     std::stringstream peer_id;
-    peer_id << "-PI" << v.getMajor() << std::setfill('0') << std::setw(2) << v.getMinor() << v.getPatch() << "-";
+    peer_id << "-BZ" << v.getMajor() << std::setfill('0') << std::setw(2) << v.getMinor() << v.getPatch() << "-";
 
     settings.set_str(lt::settings_pack::user_agent, user_agent.str());
     settings.set_str(lt::settings_pack::peer_fingerprint, peer_id.str());

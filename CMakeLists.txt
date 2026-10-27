@@ -229,6 +229,7 @@ target_link_libraries(
 )
 
 set_property(TARGET PicoTorrent PROPERTY ENABLE_EXPORTS 1)
+set_property(TARGET PicoTorrent PROPERTY OUTPUT_NAME Brizna)
 
 # Generate coredb
 add_custom_command(

@@ -22,7 +22,7 @@ using pt::Application;
 
 Application::Application()
     : wxApp(),
-    m_singleInstance(std::make_unique<wxSingleInstanceChecker>("584c8e47-d8a5-4e52-9165-c0650a85723a"))
+    m_singleInstance(std::make_unique<wxSingleInstanceChecker>("eb50e8eb-2263-44f0-894b-b56aaa9c6c54"))
 {
     SetProcessDPIAware();
 }
@@ -93,7 +93,7 @@ bool Application::OnInit()
     {
         wxMessageBox(
             "Failed to run database migrations. Please check log file.",
-            "PicoTorrent",
+            "Brizna",
             wxICON_ERROR);
         return false;
     }
@@ -207,7 +207,7 @@ void Application::ActivateOtherInstance()
     wxClient client;
     auto conn = client.MakeConnection(
         "localhost",
-        "PicoTorrent",
+        "Brizna",
         "ApplicationOptions");
 
     if (conn)

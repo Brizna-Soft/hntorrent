@@ -36,7 +36,7 @@ struct AutoRunKey
 
         UINT res = RegSetValueEx(
             m_key,
-            L"PicoTorrent",
+            L"Brizna",
             0,
             REG_SZ,
             (const BYTE*)p.c_str(),
@@ -44,7 +44,7 @@ struct AutoRunKey
 
         if (res != ERROR_SUCCESS)
         {
-            BOOST_LOG_TRIVIAL(warning) << "PicoTorrent could not be registered to run at start-up. Error: " << GetLastError();
+            BOOST_LOG_TRIVIAL(warning) << "Brizna could not be registered to run at start-up. Error: " << GetLastError();
         }
     }
 
@@ -52,14 +52,14 @@ struct AutoRunKey
     {
         RegDeleteValue(
             m_key,
-            TEXT("PicoTorrent"));
+            TEXT("Brizna"));
     }
 
     bool Exists()
     {
         return RegQueryValueEx(
             m_key,
-            TEXT("PicoTorrent"),
+            TEXT("Brizna"),
             NULL,
             NULL,
             NULL,

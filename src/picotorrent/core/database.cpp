@@ -150,7 +150,7 @@ Database::Database(std::shared_ptr<pt::Core::Environment> env)
     fs::path dbFile = env->GetDatabaseFilePath();
     std::string convertedPath = Utils::toStdString(dbFile.wstring());
 
-    BOOST_LOG_TRIVIAL(info) << "Loading PicoTorrent database from " << convertedPath;
+    BOOST_LOG_TRIVIAL(info) << "Loading Brizna database from " << convertedPath;
 
     sqlite3_open(convertedPath.c_str(), &m_db);
 

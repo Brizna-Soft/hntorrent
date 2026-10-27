@@ -44,7 +44,7 @@ std::shared_ptr<Environment> Environment::Create()
     boost::log::add_common_attributes();
     boost::log::core::get()->add_global_attribute("Uptime", boost::log::attributes::timer());
 
-    BOOST_LOG_TRIVIAL(info) << "PicoTorrent starting up...";
+    BOOST_LOG_TRIVIAL(info) << "Brizna starting up...";
 
     return std::shared_ptr<Environment>(env);
 }
@@ -53,7 +53,7 @@ fs::path Environment::GetApplicationDataPath()
 {
     if (IsInstalled() || IsAppContainerProcess())
     {
-        return fs::path(GetKnownFolderPath(KnownFolder::LocalAppData)) / "PicoTorrent";
+        return fs::path(GetKnownFolderPath(KnownFolder::LocalAppData)) / "Brizna";
     }
 
     return GetApplicationPath();
@@ -90,7 +90,7 @@ std::string Environment::GetCurrentLocale()
 
 fs::path Environment::GetDatabaseFilePath()
 {
-    return GetApplicationDataPath() / "PicoTorrent.sqlite";
+    return GetApplicationDataPath() / "Brizna.sqlite";
 }
 
 fs::path Environment::GetKnownFolderPath(Environment::KnownFolder knownFolder)
@@ -136,7 +136,7 @@ fs::path Environment::GetLogFilePath()
     char frmt[100] = { 0 };
     snprintf(frmt,
         ARRAYSIZE(frmt),
-        "PicoTorrent.%d%02d%02d%02d%02d%02d.log",
+        "Brizna.%d%02d%02d%02d%02d%02d.log",
         t.tm_year + 1900,
         t.tm_mon + 1,
         t.tm_mday,
@@ -164,7 +164,7 @@ bool Environment::IsInstalled()
 
     LSTATUS lStatus = RegOpenKeyEx(
         HKEY_LOCAL_MACHINE,
-        TEXT("Software\\PicoTorrent"),
+        TEXT("Software\\Brizna"),
         0,
         KEY_READ,
         &hKey);
@@ -196,7 +196,7 @@ bool Environment::IsInstalled()
     GetModuleFileName(NULL, currentLocation, ARRAYSIZE(currentLocation));
 
     TCHAR installedFile[MAX_PATH];
-    PathCombine(installedFile, installDirectory, TEXT("PicoTorrent.exe"));
+    PathCombine(installedFile, installDirectory, TEXT("Brizna.exe"));
 
     if (StrCmp(currentLocation, installedFile) == 0)
     {

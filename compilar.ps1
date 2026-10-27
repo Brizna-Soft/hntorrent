@@ -1,4 +1,4 @@
-﻿# Compila nuestra versión de PicoTorrent y la deja lista en ..\programa
+﻿# Compila Brizna (nuestra versión de PicoTorrent) y la deja lista en ..\programa
 #
 # Uso (desde cualquier carpeta):
 #   powershell -ExecutionPolicy Bypass -File compilar.ps1
@@ -71,29 +71,33 @@ Paso 'Configurando (la primera vez tarda: vcpkg compila Boost, OpenSSL y libtorr
 if ($LASTEXITCODE -ne 0) { throw "Falló la configuración con CMake (código $LASTEXITCODE)" }
 
 # --- 5. Compilar ---
-Paso 'Compilando PicoTorrent'
+Paso 'Compilando Brizna'
 & $cmake --build $build --config Release --target PicoTorrent --parallel
 if ($LASTEXITCODE -ne 0) { throw "Falló la compilación (código $LASTEXITCODE)" }
 
-$exe = Join-Path $build 'Release\PicoTorrent.exe'
+$exe = Join-Path $build 'Release\Brizna.exe'
 $coredb = Join-Path $build 'Release\coredb.sqlite'
+$avisos = Join-Path $build 'Release\AVISOS-DE-TERCEROS.txt'
 foreach ($f in $exe, $coredb) { if (-not (Test-Path $f)) { throw "No se generó $f" } }
+
+Paso 'Armando los avisos de licencias de terceros'
+& (Join-Path $codigo 'generar-avisos.ps1') -Build $build -Salida $avisos -Version $semver
 
 # --- 6. Copiar a ..\programa ---
 if (-not $SinCopiar) {
     Paso "Copiando a $programa"
-    if (Get-Process PicoTorrent -ErrorAction SilentlyContinue) { throw 'Cierra PicoTorrent antes de copiar la versión nueva' }
+    if (Get-Process Brizna -ErrorAction SilentlyContinue) { throw 'Cierra Brizna antes de copiar la versión nueva' }
     New-Item -ItemType Directory -Force $programa | Out-Null
     # Guardar la versión que estaba antes, por si la nueva falla (tus torrents y ajustes no se tocan)
     $anterior = Join-Path $raiz 'programa-anterior'
-    if (Test-Path (Join-Path $programa 'PicoTorrent.exe')) {
+    if (Test-Path (Join-Path $programa 'Brizna.exe')) {
         New-Item -ItemType Directory -Force $anterior | Out-Null
-        Copy-Item (Join-Path $programa 'PicoTorrent.exe'), (Join-Path $programa 'coredb.sqlite') $anterior -Force -ErrorAction SilentlyContinue
+        Copy-Item (Join-Path $programa 'Brizna.exe'), (Join-Path $programa 'coredb.sqlite') $anterior -Force -ErrorAction SilentlyContinue
         Write-Host "Versión anterior guardada en $anterior"
     }
-    Copy-Item $exe, $coredb $programa -Force
+    Copy-Item $exe, $coredb, $avisos $programa -Force
 }
 
 Paso 'Listo'
-Write-Host "PicoTorrent $semver compilado." -ForegroundColor Green
-if (-not $SinCopiar) { Write-Host "Programa: $(Join-Path $programa 'PicoTorrent.exe')" -ForegroundColor Green }
+Write-Host "Brizna $semver compilado." -ForegroundColor Green
+if (-not $SinCopiar) { Write-Host "Programa: $(Join-Path $programa 'Brizna.exe')" -ForegroundColor Green }
