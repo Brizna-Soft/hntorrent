@@ -21,7 +21,6 @@ set(wxUSE_EXCEPTIONS      OFF   CACHE BOOL   "" FORCE)
 # --------------------
 
 # vendor libs
-add_subdirectory(vendor/sentry-crashpad)
 add_subdirectory(vendor/wx)
 
 # pico components
@@ -87,7 +86,6 @@ add_executable(
 
     src/picotorrent/application
     src/picotorrent/buildinfo
-    src/picotorrent/crashpadinitializer
     src/picotorrent/main
     src/picotorrent/persistencemanager
     src/picotorrent/resources.rc
@@ -215,11 +213,6 @@ target_link_libraries(
     wininet
     winhttp
 
-    # Crashpad
-    crashpad_client
-    crashpad_util
-    mini_chromium
-
     # fmt
     fmt::fmt
 
@@ -236,25 +229,6 @@ target_link_libraries(
 )
 
 set_property(TARGET PicoTorrent PROPERTY ENABLE_EXPORTS 1)
-
-# Plugins
-add_library(
-    Plugin_Updater
-    SHARED
-    src/plugins/updater/updater
-)
-
-target_compile_definitions(Plugin_Updater PRIVATE -D_WIN32 -DUNICODE -DWIN32_LEAN_AND_MEAN)
-target_include_directories(Plugin_Updater PRIVATE include)
-target_link_libraries(Plugin_Updater PRIVATE PicoTorrent Comctl32)
-
-# Copy Crashpad handler
-add_custom_command(
-    TARGET PicoTorrent POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different
-        $<TARGET_FILE:crashpad_handler>
-        $<TARGET_FILE_DIR:PicoTorrent>
-)
 
 # Generate coredb
 add_custom_command(
