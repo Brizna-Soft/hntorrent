@@ -75,6 +75,7 @@ namespace Models
         void OnFileAddTorrent(wxCommandEvent&);
         void OnFileCreateTorrent(wxCommandEvent&);
         void OnHelpAbout(wxCommandEvent&);
+        void OnHelpCheckForUpdate(wxCommandEvent&);
         void OnViewHelp(wxCommandEvent&);
         void OnIconize(wxIconizeEvent&);
         void OnTaskBarLeftDown(wxTaskBarIconEvent&);
@@ -97,6 +98,7 @@ namespace Models
         std::shared_ptr<Core::Database> m_db;
         std::shared_ptr<Core::Configuration> m_cfg;
         std::unique_ptr<IPC::Server> m_ipc;
+        std::unique_ptr<UpdateChecker> m_updateChecker;
         pt::CommandLineOptions m_options;
 
         wxMenu* m_viewMenu;

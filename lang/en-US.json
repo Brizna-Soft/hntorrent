@@ -1,4 +1,11 @@
 {
+    "update_title": "Brizna update",
+    "update_available_s": "A new version of Brizna is available: {0} (you have {1}).\n\nInstall it now? Brizna will restart.",
+    "update_install_now": "Install now",
+    "update_not_now": "Not now",
+    "update_up_to_date_s": "You have the latest version of Brizna ({0}).",
+    "update_bad_signature": "The update was not installed because its digital signature is not valid.",
+    "update_failed_s": "Brizna could not be updated: {0}",
     "based_on_picotorrent_long": "Based on PicoTorrent, © 2015 Viktor Elofsson and contributors (MIT License).",
     "made_with_ai_help": "Made with the help of AI.",
     "picotorrent_on_github": "PicoTorrent on GitHub",

@@ -1,13 +1,22 @@
 # Cada lunes revisa si salió una libtorrent 2.0.x nueva o una versión nueva de vcpkg (Boost, OpenSSL y demás).
-# Si hay algo nuevo: lo aplica, sube el número de versión (version.txt), compila, guarda el cambio en la
-# rama version-propia y publica una "Release" en este repositorio privado.
-# Si no hay nada nuevo, termina en un par de minutos. También se puede lanzar a mano desde la pestaña Actions.
+# Si hay algo nuevo: lo aplica, sube el número de versión (version.txt), compila, firma, guarda el cambio
+# en la rama version-propia y publica la versión:
+#   - como Release en este repositorio privado, y
+#   - en el repositorio público Brizna-Soft/brizna-descargas, de donde la baja el actualizador de Brizna.
+# Si no hay nada nuevo, termina en un par de minutos.
+# A mano (pestaña Actions > Revisar actualizaciones > Run workflow) se puede marcar "forzar" para
+# publicar una versión nueva aunque no haya cambiado ninguna biblioteca (por ejemplo, tras un cambio de código).
 name: Revisar actualizaciones
 
 on:
   schedule:
     - cron: '17 12 * * 1'   # lunes a las 12:17 UTC (6:17 a. m. en Honduras)
   workflow_dispatch:
+    inputs:
+      forzar:
+        description: 'Publicar una versión nueva aunque no haya bibliotecas nuevas'
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -16,9 +25,12 @@ concurrency:
   group: actualizaciones
   cancel-in-progress: false
 
+env:
+  REPO_DESCARGAS: Brizna-Soft/brizna-descargas
+
 jobs:
   revisar:
-    name: Revisar libtorrent y vcpkg
+    name: Revisar, compilar y publicar
     runs-on: windows-2022
     timeout-minutes: 180
     steps:
@@ -33,6 +45,7 @@ jobs:
         shell: powershell
         env:
           GITHUB_TOKEN: ${{ github.token }}
+          FORZAR: ${{ inputs.forzar }}
         run: |
           $api = @{ 'User-Agent' = 'brizna'; 'Authorization' = "Bearer $env:GITHUB_TOKEN" }
           $ltAntes = (Get-Content -Raw vendor\vcpkg-overlays\ports\libtorrent\vcpkg.json | ConvertFrom-Json).version
@@ -47,6 +60,7 @@ jobs:
             $tag = (Invoke-RestMethod -Uri 'https://api.github.com/repos/microsoft/vcpkg/releases/latest' -Headers $api).tag_name
             $cambios += "vcpkg $tag (Boost, OpenSSL y demas)"
           }
+          if ($cambios.Count -eq 0 -and $env:FORZAR -eq 'true') { $cambios += 'publicacion manual' }
           if ($cambios.Count -eq 0) {
             'hay=no' | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
             Write-Host 'Todo al dia: no hay versiones nuevas.'
@@ -92,12 +106,20 @@ jobs:
           path: ${{ env.VCPKG_DEFAULT_BINARY_CACHE }}
           key: vcpkg-bin-${{ github.run_id }}
 
-      - name: Empaquetar
+      # La clave privada solo existe en el disco de la máquina de GitHub mientras se firma
+      - name: Empaquetar y firmar
         if: steps.buscar.outputs.hay == 'si'
         shell: powershell
-        run: .\empaquetar.ps1 -Salida "$env:RUNNER_TEMP\paquete"
+        env:
+          FIRMA: ${{ secrets.BRIZNA_FIRMA_PRIVADA }}
+        run: |
+          if (-not $env:FIRMA) { throw 'Falta el secreto BRIZNA_FIRMA_PRIVADA' }
+          $clave = Join-Path $env:RUNNER_TEMP 'firma.pem'
+          [IO.File]::WriteAllText($clave, $env:FIRMA)
+          try { .\empaquetar.ps1 -Salida "$env:RUNNER_TEMP\paquete" -ClavePrivada $clave }
+          finally { Remove-Item $clave -Force }
 
-      - name: Guardar el cambio y publicar la versión
+      - name: Guardar el cambio y publicar en este repositorio
         if: steps.buscar.outputs.hay == 'si'
         shell: powershell
         env:
@@ -112,6 +134,23 @@ jobs:
           git push origin HEAD:version-propia
           if ($LASTEXITCODE -ne 0) { throw 'No se pudo guardar el cambio en version-propia' }
           $archivos = (Get-ChildItem "$env:RUNNER_TEMP\paquete\*").FullName
-          $notas = "Actualizacion automatica de la revision semanal.`n`n$env:CAMBIOS"
+          $notas = "Actualizacion automatica.`n`n$env:CAMBIOS"
           gh release create "v$env:VERSION" $archivos --title "Brizna $env:VERSION" --notes $notas --target (git rev-parse HEAD)
           if ($LASTEXITCODE -ne 0) { throw 'No se pudo publicar la version' }
+
+      - name: Publicar en el repositorio público de descargas
+        if: steps.buscar.outputs.hay == 'si'
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ secrets.PUBLICAR_TOKEN }}
+          VERSION: ${{ steps.buscar.outputs.version }}
+          CAMBIOS: ${{ steps.buscar.outputs.cambios }}
+        run: |
+          if (-not $env:GH_TOKEN) {
+            Write-Host '::warning::Falta el secreto PUBLICAR_TOKEN: la version quedo solo en el repositorio privado.'
+            exit 0
+          }
+          $archivos = (Get-ChildItem "$env:RUNNER_TEMP\paquete\*").FullName
+          $notas = "Brizna $env:VERSION`n`n$env:CAMBIOS`n`nCada archivo esta firmado: Brizna comprueba la firma antes de instalar una actualizacion."
+          gh release create "v$env:VERSION" $archivos --repo $env:REPO_DESCARGAS --title "Brizna $env:VERSION" --notes $notas
+          if ($LASTEXITCODE -ne 0) { throw 'No se pudo publicar en el repositorio de descargas' }

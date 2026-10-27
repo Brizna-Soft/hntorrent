@@ -26,6 +26,7 @@
 #include "../core/environment.hpp"
 #include "../core/utils.hpp"
 #include "../ipc/server.hpp"
+#include "../updatechecker.hpp"
 #include "console.hpp"
 #include "dialogs/aboutdialog.hpp"
 #include "dialogs/addmagnetlinkdialog.hpp"
@@ -253,6 +254,7 @@ MainFrame::MainFrame(std::shared_ptr<pt::Core::Environment> env, std::shared_ptr
     this->Bind(wxEVT_MENU, &MainFrame::OnViewPreferences, this, ptID_EVT_VIEW_PREFERENCES);
     this->Bind(wxEVT_MENU, &MainFrame::OnViewHelp, this, ptID_EVT_VIEW_HELP);
     this->Bind(wxEVT_MENU, &MainFrame::OnHelpAbout, this, ptID_EVT_ABOUT);
+    this->Bind(wxEVT_MENU, &MainFrame::OnHelpCheckForUpdate, this, ptID_EVT_CHECK_FOR_UPDATE);
 
     // Keyboard shortcuts
     this->Bind(wxEVT_MENU, &MainFrame::OnFileAddTorrent, this, ptID_KEY_ADD_TORRENT);
@@ -340,6 +342,14 @@ MainFrame::MainFrame(std::shared_ptr<pt::Core::Environment> env, std::shared_ptr
     if (auto currentFilter = m_cfg->Get<std::string>("current_filter"))
     {
         m_console->SetText(currentFilter.value_or(""));
+    }
+
+    // Look for a new version in the background
+    m_updateChecker = std::make_unique<UpdateChecker>(this, m_cfg, m_env);
+
+    if (m_cfg->Get<bool>("update_checks.enabled").value_or(true))
+    {
+        CallAfter([this]() { m_updateChecker->Check(false); });
     }
 }
 
@@ -657,6 +667,8 @@ wxMenuBar* MainFrame::CreateMainMenu()
     m_viewMenu->Append(ptID_EVT_VIEW_PREFERENCES, i18n("amp_preferences"));
 
     auto helpMenu = new wxMenu();
+    helpMenu->Append(ptID_EVT_CHECK_FOR_UPDATE, i18n("amp_check_for_update"));
+    helpMenu->AppendSeparator();
     helpMenu->Append(ptID_EVT_VIEW_HELP, i18n("view_help"));
     helpMenu->Append(ptID_EVT_ABOUT, i18n("amp_about"));
 
@@ -746,6 +758,11 @@ void MainFrame::OnHelpAbout(wxCommandEvent&)
 {
     Dialogs::AboutDialog dlg(this, wxID_ANY);
     dlg.ShowModal();
+}
+
+void MainFrame::OnHelpCheckForUpdate(wxCommandEvent&)
+{
+    m_updateChecker->Check(true);
 }
 
 void MainFrame::OnIconize(wxIconizeEvent& ev)

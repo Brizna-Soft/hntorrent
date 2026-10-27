@@ -31,6 +31,7 @@ find_package(Boost                      REQUIRED COMPONENTS log)
 find_package(fmt                 CONFIG REQUIRED)
 find_package(LibtorrentRasterbar CONFIG REQUIRED)
 find_package(nlohmann_json       CONFIG REQUIRED)
+find_package(OpenSSL                    REQUIRED)
 find_package(unofficial-sqlite3  CONFIG REQUIRED)
 
 # Generate buildinfo file
@@ -89,6 +90,7 @@ add_executable(
     src/picotorrent/main
     src/picotorrent/persistencemanager
     src/picotorrent/resources.rc
+    src/picotorrent/updatechecker
 
     # API
     src/picotorrent/api/libpico
@@ -218,6 +220,9 @@ target_link_libraries(
 
     # nlohmann-json
     nlohmann_json::nlohmann_json
+
+    # OpenSSL (update signature check)
+    OpenSSL::Crypto
 
     # Rasterbar-libtorrent
     LibtorrentRasterbar::torrent-rasterbar

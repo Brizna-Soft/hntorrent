@@ -10,6 +10,7 @@
 
 #include "api/libpico_impl.hpp"
 #include "persistencemanager.hpp"
+#include "updatechecker.hpp"
 #include "core/configuration.hpp"
 #include "core/database.hpp"
 #include "core/environment.hpp"
@@ -85,6 +86,7 @@ bool Application::OnInit()
     }
 
     auto env = pt::Core::Environment::Create();
+    pt::UpdateChecker::CleanUp(env->GetApplicationPath());
 
     auto db = std::make_shared<pt::Core::Database>(env);
 
@@ -221,6 +223,7 @@ void Application::WaitForPreviousInstance(long pid)
 {
     HANDLE hProc = OpenProcess(SYNCHRONIZE, FALSE, pid);
     if (hProc == NULL) { return; }
-    WaitForSingleObject(hProc, 10000);
+    // After an update the old version may need a while to save the state of every torrent
+    WaitForSingleObject(hProc, 120000);
     CloseHandle(hProc);
 }
