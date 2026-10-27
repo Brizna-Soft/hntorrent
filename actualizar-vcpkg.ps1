@@ -29,7 +29,10 @@ if (-not $Version) {
 # Se compara por commit, así funciona aunque la copia de vcpkg no tenga las etiquetas (como en GitHub Actions)
 $commitNuevo = (Invoke-RestMethod -Uri "https://api.github.com/repos/microsoft/vcpkg/commits/$Version" -Headers $api).sha
 $commitActual = (& $git -C $vcpkg rev-parse HEAD).Trim()
+# Sin etiquetas, git avisa por stderr; en PowerShell 5.1 eso sería un error si no se relaja la preferencia
+$eap = $ErrorActionPreference; $ErrorActionPreference = 'Continue'
 $actual = (& $git -C $vcpkg describe --tags --exact-match 2>$null)
+$ErrorActionPreference = $eap
 if (-not $actual) { $actual = $commitActual.Substring(0, 10) }
 Write-Host "Versión que usa nuestra compilación: $actual"
 if ($commitActual -eq $commitNuevo) { Write-Host 'No hay nada que actualizar.' -ForegroundColor Green; return }
