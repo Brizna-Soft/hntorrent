@@ -5,6 +5,8 @@
 #include <regex>
 
 #include <boost/log/trivial.hpp>
+#include <fmt/format.h>
+#include <fmt/xchar.h>
 #include <libtorrent/add_torrent_params.hpp>
 #include <libtorrent/magnet_uri.hpp>
 #include <libtorrent/torrent_info.hpp>
@@ -13,6 +15,7 @@
 #include <wx/sizer.h>
 #include <wx/splitter.h>
 #include <wx/taskbarbutton.h>
+#include <wx/toolbar.h>
 
 #include "../applicationoptions.hpp"
 #include "../bittorrent/addparams.hpp"
@@ -40,6 +43,7 @@
 #include "torrentcontextmenu.hpp"
 #include "torrentdetailsview.hpp"
 #include "torrentlistview.hpp"
+#include "toolbaricons.hpp"
 #include "translator.hpp"
 
 #include "win32/openfiledialog.hpp"
@@ -97,6 +101,7 @@ MainFrame::MainFrame(std::shared_ptr<pt::Core::Environment> env, std::shared_ptr
     this->SetAcceleratorTable(wxAcceleratorTable(static_cast<int>(entries.size()), entries.data()));
     this->SetIcon(wxICON(AppIcon));
     this->SetMenuBar(this->CreateMainMenu());
+    this->CreateMainToolBar();
     this->SetSizerAndFit(sizer);
     this->SetStatusBar(m_statusBar);
 
@@ -255,6 +260,12 @@ MainFrame::MainFrame(std::shared_ptr<pt::Core::Environment> env, std::shared_ptr
     this->Bind(wxEVT_MENU, &MainFrame::OnViewHelp, this, ptID_EVT_VIEW_HELP);
     this->Bind(wxEVT_MENU, &MainFrame::OnHelpAbout, this, ptID_EVT_ABOUT);
     this->Bind(wxEVT_MENU, &MainFrame::OnHelpCheckForUpdate, this, ptID_EVT_CHECK_FOR_UPDATE);
+
+    // Toolbar (adding torrents reuses the menu ids above)
+    this->Bind(wxEVT_MENU, [this](wxCommandEvent&) { for (auto const& sel : m_selection) { sel.second->Resume(); } }, ptID_TOOLBAR_RESUME);
+    this->Bind(wxEVT_MENU, [this](wxCommandEvent&) { for (auto const& sel : m_selection) { sel.second->Pause(); } }, ptID_TOOLBAR_PAUSE);
+    this->Bind(wxEVT_MENU, &MainFrame::OnToolBarRemove, this, ptID_TOOLBAR_REMOVE);
+    this->Bind(wxEVT_UPDATE_UI, &MainFrame::OnToolBarUpdateUI, this, ptID_TOOLBAR_RESUME, ptID_TOOLBAR_REMOVE);
 
     // Keyboard shortcuts
     this->Bind(wxEVT_MENU, &MainFrame::OnFileAddTorrent, this, ptID_KEY_ADD_TORRENT);
@@ -678,6 +689,59 @@ wxMenuBar* MainFrame::CreateMainMenu()
     mainMenu->Append(helpMenu, i18n("amp_help"));
 
     return mainMenu;
+}
+
+void MainFrame::CreateMainToolBar()
+{
+    auto icon = [](const char* svg) { return wxBitmapBundle::FromSVG(svg, wxSize(24, 24)); };
+
+    auto toolBar = CreateToolBar(wxTB_HORIZONTAL | wxTB_FLAT | wxTB_TEXT | wxTB_NODIVIDER);
+    toolBar->AddTool(ptID_EVT_ADD_TORRENT, i18n("toolbar_add_torrent"), icon(ToolbarIcons::AddTorrent), i18n("toolbar_add_torrent_help"));
+    toolBar->AddTool(ptID_EVT_ADD_MAGNET_LINK, i18n("toolbar_add_magnet_link"), icon(ToolbarIcons::AddMagnetLink), i18n("toolbar_add_magnet_link_help"));
+    toolBar->AddSeparator();
+    toolBar->AddTool(ptID_TOOLBAR_RESUME, i18n("resume"), icon(ToolbarIcons::Resume), i18n("toolbar_resume_help"));
+    toolBar->AddTool(ptID_TOOLBAR_PAUSE, i18n("pause"), icon(ToolbarIcons::Pause), i18n("toolbar_pause_help"));
+    toolBar->AddSeparator();
+    toolBar->AddTool(ptID_TOOLBAR_REMOVE, i18n("toolbar_remove"), icon(ToolbarIcons::Remove), i18n("toolbar_remove_help"));
+    toolBar->Realize();
+}
+
+void MainFrame::OnToolBarRemove(wxCommandEvent&)
+{
+    if (m_selection.empty()) { return; }
+
+    if (wxMessageBox(
+        fmt::format(i18n("confirm_remove_from_list_s"), m_selection.size()),
+        i18n("confirm_remove"),
+        wxYES_NO | wxNO_DEFAULT | wxICON_QUESTION,
+        this) != wxYES)
+    {
+        return;
+    }
+
+    // Copy first: removing torrents changes the selection
+    std::vector<BitTorrent::TorrentHandle*> torrents;
+    for (auto const& sel : m_selection) { torrents.push_back(sel.second); }
+    for (auto torrent : torrents) { torrent->Remove(); }
+}
+
+void MainFrame::OnToolBarUpdateUI(wxUpdateUIEvent& evt)
+{
+    bool anyPaused = false;
+    bool anyRunning = false;
+
+    for (auto const& sel : m_selection)
+    {
+        if (sel.second->Status().paused) { anyPaused = true; }
+        else { anyRunning = true; }
+    }
+
+    switch (evt.GetId())
+    {
+    case ptID_TOOLBAR_RESUME: evt.Enable(anyPaused); break;
+    case ptID_TOOLBAR_PAUSE: evt.Enable(anyRunning); break;
+    case ptID_TOOLBAR_REMOVE: evt.Enable(!m_selection.empty()); break;
+    }
 }
 
 void MainFrame::OnClose(wxCloseEvent& evt)

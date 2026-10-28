@@ -149,14 +149,17 @@ namespace
 
             if (status == 301 || status == 302 || status == 303 || status == 307 || status == 308)
             {
-                current = QueryHeader(request.handle, WINHTTP_QUERY_LOCATION);
+                std::wstring location = QueryHeader(request.handle, WINHTTP_QUERY_LOCATION);
 
-                if (current.empty())
+                if (location.empty())
                 {
                     error = "redirect without a location";
                     return false;
                 }
 
+                // A path on the same host; anything else must be a full https address,
+                // which the next round checks again (scheme and host)
+                current = location[0] == L'/' ? L"https://" + host + location : location;
                 continue;
             }
 
@@ -315,6 +318,7 @@ namespace
         std::unique_ptr<wxZipEntry> entry;
         std::set<std::string> extracted;
         std::vector<char> buffer(64 * 1024);
+        size_t packageTotal = 0;
 
         for (entry.reset(archive.GetNextEntry()); entry != nullptr; entry.reset(archive.GetNextEntry()))
         {
@@ -350,8 +354,9 @@ namespace
                 if (read == 0) { break; }
 
                 total += read;
+                packageTotal += read;
 
-                if (total > MaxEntrySize)
+                if (total > MaxEntrySize || packageTotal > MaxPackageSize)
                 {
                     error = name + " is too large";
                     return false;
@@ -370,6 +375,13 @@ namespace
                 error = "cannot extract " + name;
                 return false;
             }
+        }
+
+        // A damaged central directory or entry shows up as a read error when the entries run out
+        if (archive.GetLastError() == wxSTREAM_READ_ERROR || input.GetLastError() == wxSTREAM_READ_ERROR)
+        {
+            error = "the package is damaged";
+            return false;
         }
 
         if (extracted.size() != PackageFiles.size())
@@ -593,16 +605,34 @@ void UpdateChecker::Install(fs::path const& staging)
         replacements.push_back({ target, backup, fs::exists(target) });
     }
 
-    // Puts every original file back and removes the new ones that had no original
-    auto restore = [&replacements](size_t count)
+    // Puts the original files back (newest change first) and removes the new ones that had no
+    // original. Returns false if something could not be put back.
+    auto restore = [&replacements](size_t count) -> bool
     {
-        for (size_t i = 0; i < count; i++)
+        bool restored = true;
+
+        for (size_t i = count; i-- > 0;)
         {
             Replacement const& r = replacements[i];
 
-            if (r.hadOriginal) { MoveFileExW(r.backup.c_str(), r.target.c_str(), MOVEFILE_REPLACE_EXISTING); }
-            else { DeleteFileW(r.target.c_str()); }
+            if (r.hadOriginal)
+            {
+                restored = (MoveFileExW(r.backup.c_str(), r.target.c_str(), MOVEFILE_REPLACE_EXISTING) != FALSE) && restored;
+            }
+            else if (!DeleteFileW(r.target.c_str()) && GetLastError() != ERROR_FILE_NOT_FOUND)
+            {
+                restored = false;
+            }
         }
+
+        return restored;
+    };
+
+    auto fail = [this, &restore](std::wstring const& what, size_t count)
+    {
+        bool restored = restore(count);
+        BOOST_LOG_TRIVIAL(error) << "Update failed while installing: " << Utils::toStdString(what) << (restored ? "" : " (could not restore)");
+        ShowError(fmt::format(i18n(restored ? "update_failed_s" : "update_restore_failed_s"), what));
     };
 
     // 1. Move the current files aside. A running executable cannot be overwritten, but it
@@ -613,9 +643,7 @@ void UpdateChecker::Install(fs::path const& staging)
 
         if (r.hadOriginal && !MoveFileExW(r.target.c_str(), r.backup.c_str(), MOVEFILE_REPLACE_EXISTING))
         {
-            DWORD err = GetLastError();
-            restore(i);
-            ShowError(fmt::format(i18n("update_failed_s"), fmt::format(L"rename {} ({})", r.target.filename().wstring(), err)));
+            fail(fmt::format(L"rename {} ({})", r.target.filename().wstring(), GetLastError()), i);
             return;
         }
     }
@@ -629,9 +657,7 @@ void UpdateChecker::Install(fs::path const& staging)
 
         if (!MoveFileExW(source.c_str(), r.target.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_COPY_ALLOWED))
         {
-            DWORD err = GetLastError();
-            restore(replacements.size());
-            ShowError(fmt::format(i18n("update_failed_s"), fmt::format(L"move {} ({})", r.target.filename().wstring(), err)));
+            fail(fmt::format(L"move {} ({})", r.target.filename().wstring(), GetLastError()), replacements.size());
             return;
         }
     }

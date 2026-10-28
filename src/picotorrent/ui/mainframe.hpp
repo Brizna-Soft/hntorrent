@@ -65,6 +65,7 @@ namespace Models
 
     private:
         wxMenuBar* CreateMainMenu();
+        void CreateMainToolBar();
 
         void AddTorrents(std::vector<libtorrent::add_torrent_params>& params, bool use_commandline_options);
         void CheckDiskSpace(std::vector<BitTorrent::TorrentHandle*> const& updatedTorrents);
@@ -79,6 +80,8 @@ namespace Models
         void OnViewHelp(wxCommandEvent&);
         void OnIconize(wxIconizeEvent&);
         void OnTaskBarLeftDown(wxTaskBarIconEvent&);
+        void OnToolBarRemove(wxCommandEvent&);
+        void OnToolBarUpdateUI(wxUpdateUIEvent&);
         void OnViewPreferences(wxCommandEvent&);
         void ParseTorrentFiles(std::vector<libtorrent::add_torrent_params>& params, std::vector<std::wstring> const& paths);
         void ShowTorrentContextMenu(wxCommandEvent&);

@@ -118,6 +118,7 @@ jobs:
           try {
             [IO.File]::WriteAllText($clave, ($env:FIRMA.TrimStart([char]0xFEFF).Trim() -replace "`r`n", "`n") + "`n")
             icacls $clave /inheritance:r /grant:r "$($env:USERNAME):(F)" | Out-Null
+            if ($LASTEXITCODE -ne 0) { throw 'No se pudieron restringir los permisos de la clave' }
             .\empaquetar.ps1 -Salida "$env:RUNNER_TEMP\paquete" -ClavePrivada $clave
           }
           finally { Remove-Item $clave -Force -ErrorAction SilentlyContinue }
@@ -164,6 +165,7 @@ jobs:
             $texto = $env:LLAVE.TrimStart([char]0xFEFF).Trim() -replace "`r`n", "`n"
             [IO.File]::WriteAllText($llave, $texto + "`n")
             icacls $llave /inheritance:r /grant:r "$($env:USERNAME):(F)" | Out-Null
+            if ($LASTEXITCODE -ne 0) { throw 'No se pudieron restringir los permisos de la clave' }
             $meta = Invoke-RestMethod -Uri 'https://api.github.com/meta' -Headers @{ 'User-Agent' = 'brizna' }
             $hosts = Join-Path $ssh 'known_hosts'
             [IO.File]::WriteAllLines($hosts, [string[]]($meta.ssh_keys | ForEach-Object { "github.com $_" }))

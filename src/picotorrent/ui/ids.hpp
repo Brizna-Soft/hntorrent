@@ -32,6 +32,11 @@ namespace UI
         ptID_KEY_ADD_MAGNET_LINK,
         ptID_KEY_VIEW_HELP,
 
+        // Toolbar actions on the selected torrents (keep them together, they are bound as a range)
+        ptID_TOOLBAR_RESUME,
+        ptID_TOOLBAR_PAUSE,
+        ptID_TOOLBAR_REMOVE,
+
         ptID_EVT_FILTERS_NONE,
         ptID_EVT_FILTERS_USER,
     };
