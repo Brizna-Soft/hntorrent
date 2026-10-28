@@ -115,7 +115,7 @@ jobs:
         run: |
           if (-not $env:FIRMA) { throw 'Falta el secreto BRIZNA_FIRMA_PRIVADA' }
           $clave = Join-Path $env:RUNNER_TEMP 'firma.pem'
-          [IO.File]::WriteAllText($clave, $env:FIRMA)
+          [IO.File]::WriteAllText($clave, ($env:FIRMA.TrimStart([char]0xFEFF).Trim() -replace "`r`n", "`n") + "`n")
           try { .\empaquetar.ps1 -Salida "$env:RUNNER_TEMP\paquete" -ClavePrivada $clave }
           finally { Remove-Item $clave -Force }
 
@@ -155,8 +155,10 @@ jobs:
           $ssh = Join-Path $env:RUNNER_TEMP 'ssh'
           New-Item -ItemType Directory -Force $ssh | Out-Null
           $llave = Join-Path $ssh 'descargas'
-          [IO.File]::WriteAllText($llave, (($env:LLAVE.Trim()) -replace "`r`n", "`n") + "`n")
-          icacls $llave /inheritance:r /grant:r "$($env:USERNAME):(R)" | Out-Null
+          # OpenSSH no acepta la marca BOM ni los CRLF que puede traer el secreto
+          $texto = $env:LLAVE.TrimStart([char]0xFEFF).Trim() -replace "`r`n", "`n"
+          [IO.File]::WriteAllText($llave, $texto + "`n")
+          icacls $llave /inheritance:r /grant:r "$($env:USERNAME):(F)" | Out-Null
           $meta = Invoke-RestMethod -Uri 'https://api.github.com/meta' -Headers @{ 'User-Agent' = 'brizna' }
           $hosts = Join-Path $ssh 'known_hosts'
           [IO.File]::WriteAllLines($hosts, [string[]]($meta.ssh_keys | ForEach-Object { "github.com $_" }))
@@ -174,5 +176,5 @@ jobs:
           git -C $publico commit -q -m "Brizna $env:VERSION"
           git -C $publico push --force "git@github.com:$env:REPO_DESCARGAS.git" main
           $resultado = $LASTEXITCODE
-          Remove-Item -Recurse -Force $ssh
+          Remove-Item -Recurse -Force $ssh -ErrorAction SilentlyContinue
           if ($resultado -ne 0) { throw 'No se pudo subir al repositorio de descargas' }
