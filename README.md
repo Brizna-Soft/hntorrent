@@ -52,6 +52,23 @@ Otros scripts:
 - `empaquetar.ps1`: arma el .zip.
 - `generar-avisos.ps1`: junta las licencias de terceros en `AVISOS-DE-TERCEROS.txt`.
 
+## Política de firma de código (Code signing policy)
+
+Pedimos la firma gratuita de SignPath Foundation para los .exe de HNTorrent. Cuando la aprueben, cada versión
+llevará esta firma:
+
+> Free code signing provided by [SignPath.io](https://about.signpath.io), certificate by
+> [SignPath Foundation](https://signpath.org).
+
+- **Equipo:** el autor, el revisor y el aprobador es [Brizna-Soft](https://github.com/Brizna-Soft).
+- **Qué se firma:** solo lo que GitHub Actions compila a partir de este repositorio. Cada firma la aprueba a mano
+  Brizna Soft.
+- **Privacidad:** HNTorrent no manda tus datos a nadie. Solo se conecta para lo que es su trabajo:
+  - las conexiones de BitTorrent de los torrents que tú agregas;
+  - al abrirse, la consulta de versiones nuevas en GitHub.
+
+  Más detalles en la [página de privacidad](https://brizna-soft.github.io/privacidad.html).
+
 ## ¿Algo falla?
 
 [Reporta el problema aquí](https://github.com/Brizna-Soft/hntorrent-descargas/issues/new/choose). Cuéntanos qué
