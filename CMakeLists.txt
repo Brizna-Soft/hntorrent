@@ -145,6 +145,7 @@ add_executable(
     src/picotorrent/ui/mainframe
     src/picotorrent/ui/statusbar
     src/picotorrent/ui/taskbaricon
+    src/picotorrent/ui/theme
     src/picotorrent/ui/torrentcontextmenu
     src/picotorrent/ui/torrentdetailsfilespanel
     src/picotorrent/ui/torrentdetailsoverviewpanel
@@ -234,7 +235,7 @@ target_link_libraries(
 )
 
 set_property(TARGET PicoTorrent PROPERTY ENABLE_EXPORTS 1)
-set_property(TARGET PicoTorrent PROPERTY OUTPUT_NAME Brizna)
+set_property(TARGET PicoTorrent PROPERTY OUTPUT_NAME HNTorrent)
 
 # Generate coredb
 add_custom_command(

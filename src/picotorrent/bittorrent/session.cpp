@@ -228,9 +228,9 @@ static lt::settings_pack getSettingsPack(std::shared_ptr<pt::Core::Configuration
 
     // Calculate user agent
     std::stringstream user_agent;
-    user_agent << "Brizna/" << pt::BuildInfo::version();
+    user_agent << "HNTorrent/" << pt::BuildInfo::version();
 
-    // Calculate peer id
+    // Calculate peer id ("BZ" is Brizna Soft, the studio that makes HNTorrent)
     semver::version v(pt::BuildInfo::version());
     std::stringstream peer_id;
     peer_id << "-BZ" << v.getMajor() << std::setfill('0') << std::setw(2) << v.getMinor() << v.getPatch() << "-";

@@ -18,7 +18,7 @@ void TaskBarIcon::Hide()
 
 void TaskBarIcon::Show()
 {
-    SetIcon(m_icon, "Brizna");
+    SetIcon(m_icon, "HNTorrent");
 }
 
 wxMenu* TaskBarIcon::CreatePopupMenu()

@@ -20,7 +20,7 @@ namespace Core
     class Environment;
 }
 
-    // Looks for a newer Brizna in the public downloads repository, checks the Ed25519
+    // Looks for a newer HNTorrent in the public downloads repository, checks the Ed25519
     // signature of the release and replaces the files next to the running executable.
     class UpdateChecker
     {

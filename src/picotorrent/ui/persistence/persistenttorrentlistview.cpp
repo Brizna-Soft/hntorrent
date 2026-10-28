@@ -40,7 +40,9 @@ PersistentTorrentListView::PersistentTorrentListView(TorrentListView* tlv)
 
 wxString PersistentTorrentListView::GetKind() const
 {
-    return "torrentViewCtrl";
+    // A new name with the HNTorrent design (0.27), so that its default columns replace
+    // the ones saved by earlier versions once
+    return "torrentList2";
 }
 
 bool PersistentTorrentListView::Restore()

@@ -1,33 +1,176 @@
 #include "torrentlistview.hpp"
 
+#include <algorithm>
+#include <memory>
+
 #include <fmt/format.h>
 #include <fmt/xchar.h>
+#include <wx/graphics.h>
+#include <wx/itemattr.h>
 #include <wx/persist.h>
 
 #include "../bittorrent/torrenthandle.hpp"
+#include "confirmremove.hpp"
 #include "models/torrentlistmodel.hpp"
 #include "persistence/persistenttorrentlistview.hpp"
+#include "theme.hpp"
 #include "translator.hpp"
 
 using pt::UI::TorrentListView;
 using pt::UI::Models::TorrentListModel;
 
+namespace
+{
+    // A thin rounded bar with the percentage next to it. The model picks the colour of the
+    // bar from the torrent state (TorrentListModel::GetAttrByRow).
+    class ProgressBarRenderer : public wxDataViewCustomRenderer
+    {
+    public:
+        // The default alignment centres the bar vertically in the row
+        ProgressBarRenderer()
+            : wxDataViewCustomRenderer("long", wxDATAVIEW_CELL_INERT)
+        {
+        }
+
+        bool SetValue(const wxVariant& value) override
+        {
+            m_percent = std::clamp(value.GetLong(), 0L, 100L);
+            return true;
+        }
+
+        bool GetValue(wxVariant& value) const override
+        {
+            value = m_percent;
+            return true;
+        }
+
+        wxSize GetSize() const override
+        {
+            // Like wxDataViewProgressRenderer: any width fits, so it takes the whole column
+            return GetView()->FromDIP(wxSize(-1, 16));
+        }
+
+        bool Render(wxRect rect, wxDC* dc, int state) override
+        {
+            auto const& colors = pt::UI::Theme::Colors();
+            wxWindow* view = GetView();
+
+            const int barHeight = view->FromDIP(6);
+            const int gap = view->FromDIP(8);
+            const int labelWidth = std::min(view->FromDIP(38), rect.width / 2);
+
+            wxRect bar(rect.x, rect.y + (rect.height - barHeight) / 2, rect.width - gap - labelWidth, barHeight);
+            wxRect label(bar.GetRight() + gap, rect.y, labelWidth, rect.height);
+
+            const wxColour fill = GetAttr().HasColour() ? GetAttr().GetColour() : colors.accent;
+            const wxColour track = (state & wxDATAVIEW_CELL_SELECTED) ? colors.selectedTrack : colors.track;
+            const double radius = barHeight / 2.0;
+            const double filled = m_percent > 0 ? std::max(bar.width * m_percent / 100.0, static_cast<double>(barHeight)) : 0.0;
+
+            if (bar.width > barHeight)
+            {
+                std::unique_ptr<wxGraphicsContext> gc(wxGraphicsContext::CreateFromUnknownDC(*dc));
+
+                if (gc)
+                {
+                    gc->SetPen(*wxTRANSPARENT_PEN);
+                    gc->SetBrush(wxBrush(track));
+                    gc->DrawRoundedRectangle(bar.x, bar.y, bar.width, bar.height, radius);
+
+                    if (filled > 0)
+                    {
+                        gc->SetBrush(wxBrush(fill));
+                        gc->DrawRoundedRectangle(bar.x, bar.y, filled, bar.height, radius);
+                    }
+                }
+                else
+                {
+                    wxDCPenChanger pen(*dc, *wxTRANSPARENT_PEN);
+                    wxDCBrushChanger brush(*dc, wxBrush(track));
+                    dc->DrawRoundedRectangle(bar, radius);
+
+                    if (filled > 0)
+                    {
+                        dc->SetBrush(wxBrush(fill));
+                        dc->DrawRoundedRectangle(wxRect(bar.x, bar.y, static_cast<int>(filled), bar.height), radius);
+                    }
+                }
+            }
+
+            wxDCTextColourChanger text(*dc, colors.mutedText);
+            dc->DrawLabel(wxString::Format("%ld %%", m_percent), label, wxALIGN_RIGHT | wxALIGN_CENTER_VERTICAL);
+
+            return true;
+        }
+
+    private:
+        long m_percent = 0;
+    };
+}
+
 TorrentListView::TorrentListView(wxWindow* parent, wxWindowID id, pt::UI::Models::TorrentListModel* model)
-    : wxDataViewCtrl(parent, id, wxDefaultPosition, wxDefaultSize, wxDV_MULTIPLE, wxDefaultValidator, "TorrentListView"),
+    : wxDataViewCtrl(parent, id, wxDefaultPosition, wxDefaultSize, wxDV_MULTIPLE | wxBORDER_NONE, wxDefaultValidator, "TorrentListView"),
     m_model(model)
 {
     this->AssociateModel(m_model);
     m_model->DecRef();
 
+    auto const& colors = Theme::Colors();
+    this->SetBackgroundColour(colors.window);
+    this->SetRowHeight(FromDIP(30));
+    this->SetHeaderAttr(wxItemAttr(colors.mutedText, colors.bar, wxNullFont));
+
     auto defaultFlags = wxDATAVIEW_COL_REORDERABLE | wxDATAVIEW_COL_RESIZABLE | wxDATAVIEW_COL_SORTABLE;
 
+    // Shown by default, as in the HNTorrent design: name, size, progress, download speed and
+    // status. The other columns can be turned on from the context menu of the column headers.
     m_columns.push_back(
         ColumnMetadata(
             new wxDataViewColumn(
                 i18n("name"),
                 new wxDataViewTextRenderer(),
                 TorrentListModel::Columns::Name,
-                FromDIP(180),
+                FromDIP(340),
+                wxALIGN_NOT,
+                defaultFlags)));
+
+    m_columns.push_back(
+        ColumnMetadata(
+            new wxDataViewColumn(
+                i18n("size"),
+                new wxDataViewTextRenderer(),
+                TorrentListModel::Columns::Size,
+                FromDIP(90),
+                wxALIGN_RIGHT,
+                defaultFlags)));
+
+    m_columns.push_back(
+        ColumnMetadata(
+            new wxDataViewColumn(
+                i18n("progress"),
+                new ProgressBarRenderer(),
+                TorrentListModel::Columns::Progress,
+                FromDIP(190),
+                wxALIGN_NOT,
+                defaultFlags)));
+
+    m_columns.push_back(
+        ColumnMetadata(
+            new wxDataViewColumn(
+                i18n("dl"),
+                new wxDataViewTextRenderer(),
+                TorrentListModel::Columns::DownloadSpeed,
+                FromDIP(100),
+                wxALIGN_RIGHT,
+                defaultFlags)));
+
+    m_columns.push_back(
+        ColumnMetadata(
+            new wxDataViewColumn(
+                i18n("status"),
+                new wxDataViewTextRenderer(),
+                TorrentListModel::Columns::Status,
+                FromDIP(150),
                 wxALIGN_NOT,
                 defaultFlags)));
 
@@ -39,17 +182,8 @@ TorrentListView::TorrentListView(wxWindow* parent, wxWindowID id, pt::UI::Models
                 TorrentListModel::Columns::QueuePosition,
                 FromDIP(30),
                 wxALIGN_RIGHT,
-                defaultFlags)));
-
-    m_columns.push_back(
-        ColumnMetadata(
-            new wxDataViewColumn(
-                i18n("size"),
-                new wxDataViewTextRenderer(),
-                TorrentListModel::Columns::Size,
-                FromDIP(80),
-                wxALIGN_RIGHT,
-                defaultFlags)));
+                defaultFlags),
+            true));
 
     m_columns.push_back(
         ColumnMetadata(
@@ -65,42 +199,13 @@ TorrentListView::TorrentListView(wxWindow* parent, wxWindowID id, pt::UI::Models
     m_columns.push_back(
         ColumnMetadata(
             new wxDataViewColumn(
-                i18n("status"),
-                new wxDataViewTextRenderer(),
-                TorrentListModel::Columns::Status,
-                FromDIP(120),
-                wxALIGN_NOT,
-                defaultFlags)));
-
-    m_columns.push_back(
-        ColumnMetadata(
-            new wxDataViewColumn(
-                i18n("progress"),
-                new wxDataViewProgressRenderer(),
-                TorrentListModel::Columns::Progress,
-                FromDIP(100),
-                wxALIGN_NOT,
-                defaultFlags)));
-
-    m_columns.push_back(
-        ColumnMetadata(
-            new wxDataViewColumn(
                 i18n("eta"),
                 new wxDataViewTextRenderer(),
                 TorrentListModel::Columns::ETA,
                 FromDIP(80),
                 wxALIGN_RIGHT,
-                defaultFlags)));
-
-    m_columns.push_back(
-        ColumnMetadata(
-            new wxDataViewColumn(
-                i18n("dl"),
-                new wxDataViewTextRenderer(),
-                TorrentListModel::Columns::DownloadSpeed,
-                FromDIP(80),
-                wxALIGN_RIGHT,
-                defaultFlags)));
+                defaultFlags),
+            true));
 
     m_columns.push_back(
         ColumnMetadata(
@@ -110,7 +215,8 @@ TorrentListView::TorrentListView(wxWindow* parent, wxWindowID id, pt::UI::Models
                 TorrentListModel::Columns::UploadSpeed,
                 FromDIP(80),
                 wxALIGN_RIGHT,
-                defaultFlags)));
+                defaultFlags),
+            true));
 
     m_columns.push_back(
         ColumnMetadata(
@@ -120,7 +226,8 @@ TorrentListView::TorrentListView(wxWindow* parent, wxWindowID id, pt::UI::Models
                 TorrentListModel::Columns::Availability,
                 FromDIP(80),
                 wxALIGN_RIGHT,
-                defaultFlags)));
+                defaultFlags),
+            true));
 
     m_columns.push_back(
         ColumnMetadata(
@@ -130,7 +237,8 @@ TorrentListView::TorrentListView(wxWindow* parent, wxWindowID id, pt::UI::Models
                 TorrentListModel::Columns::Ratio,
                 FromDIP(80),
                 wxALIGN_RIGHT,
-                defaultFlags)));
+                defaultFlags),
+            true));
 
     m_columns.push_back(
         ColumnMetadata(
@@ -140,7 +248,8 @@ TorrentListView::TorrentListView(wxWindow* parent, wxWindowID id, pt::UI::Models
                 TorrentListModel::Columns::Seeds,
                 FromDIP(80),
                 wxALIGN_RIGHT,
-                wxDATAVIEW_COL_REORDERABLE | wxDATAVIEW_COL_RESIZABLE)));
+                wxDATAVIEW_COL_REORDERABLE | wxDATAVIEW_COL_RESIZABLE),
+            true));
 
     m_columns.push_back(
         ColumnMetadata(
@@ -150,7 +259,8 @@ TorrentListView::TorrentListView(wxWindow* parent, wxWindowID id, pt::UI::Models
                 TorrentListModel::Columns::Peers,
                 FromDIP(80),
                 wxALIGN_RIGHT,
-                wxDATAVIEW_COL_REORDERABLE | wxDATAVIEW_COL_RESIZABLE)));
+                wxDATAVIEW_COL_REORDERABLE | wxDATAVIEW_COL_RESIZABLE),
+            true));
 
     m_columns.push_back(
         ColumnMetadata(
@@ -160,7 +270,8 @@ TorrentListView::TorrentListView(wxWindow* parent, wxWindowID id, pt::UI::Models
                 TorrentListModel::Columns::AddedOn,
                 FromDIP(120),
                 wxALIGN_RIGHT,
-                defaultFlags)));
+                defaultFlags),
+            true));
 
     m_columns.push_back(
         ColumnMetadata(
@@ -170,7 +281,8 @@ TorrentListView::TorrentListView(wxWindow* parent, wxWindowID id, pt::UI::Models
                 TorrentListModel::Columns::CompletedOn,
                 FromDIP(120),
                 wxALIGN_RIGHT,
-                defaultFlags)));
+                defaultFlags),
+            true));
 
     m_columns.push_back(
         ColumnMetadata(
@@ -227,11 +339,7 @@ TorrentListView::TorrentListView(wxWindow* parent, wxWindowID id, pt::UI::Models
             if (items.IsEmpty()) { return; }
 
             // A stray key press must not remove torrents silently, so ask like the toolbar does
-            if (wxMessageBox(
-                fmt::format(i18n("confirm_remove_from_list_s"), items.size()),
-                i18n("confirm_remove"),
-                wxYES_NO | wxNO_DEFAULT | wxICON_QUESTION,
-                m_parent) != wxYES) {
+            if (!ConfirmRemove(m_parent, items.size(), false, "the Delete key")) {
                 return;
             }
 
@@ -251,11 +359,7 @@ TorrentListView::TorrentListView(wxWindow* parent, wxWindowID id, pt::UI::Models
 
             if (items.IsEmpty()) { return; }
 
-            if (wxMessageBox(
-                i18n("confirm_remove_description"),
-                i18n("confirm_remove"),
-                wxOK | wxCANCEL | wxICON_INFORMATION,
-                m_parent) != wxOK) {
+            if (!ConfirmRemove(m_parent, items.size(), true, "Shift+Delete")) {
                 return;
             }
 

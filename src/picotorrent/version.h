@@ -5,14 +5,15 @@
 #define STRINGIZE2(s) #s
 #define STRINGIZE(s) STRINGIZE2(s)
 
-#define VER_FILE_DESCRIPTION_STR    "Brizna"
+#define VER_FILE_DESCRIPTION_STR    "HNTorrent"
 #define VER_FILE_VERSION            PICO_VERSION_MAJOR, PICO_VERSION_MINOR, PICO_VERSION_PATCH
 #define VER_FILE_VERSION_STR        STRINGIZE(PICO_VERSION_MAJOR)        \
                                     "." STRINGIZE(PICO_VERSION_MINOR)    \
                                     "." STRINGIZE(PICO_VERSION_PATCH) \
                                     " (" STRINGIZE(PICO_GIT_COMMITISH) ")" \
 
-#define VER_PRODUCTNAME_STR         "Brizna"
+#define VER_PRODUCTNAME_STR         "HNTorrent"
+#define VER_COMPANYNAME_STR         "Brizna Soft"
 #define VER_PRODUCT_VERSION         VER_FILE_VERSION
 #define VER_PRODUCT_VERSION_STR     VER_FILE_VERSION_STR
 #define VER_ORIGINAL_FILENAME_STR   VER_PRODUCTNAME_STR ".exe"

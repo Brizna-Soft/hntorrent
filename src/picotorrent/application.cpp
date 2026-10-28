@@ -1,11 +1,14 @@
 #include "application.hpp"
 
 #include <boost/log/trivial.hpp>
+#include <fmt/format.h>
+#include <fmt/xchar.h>
 #include <nlohmann/json.hpp>
 #include <wx/cmdline.h>
 #include <wx/ipc.h>
 #include <wx/persist.h>
 #include <wx/snglinst.h>
+#include <wx/stdpaths.h>
 #include <wx/taskbarbutton.h>
 
 #include "api/libpico_impl.hpp"
@@ -16,12 +19,57 @@
 #include "core/environment.hpp"
 #include "core/utils.hpp"
 #include "ui/mainframe.hpp"
+#include "ui/theme.hpp"
 #include "ui/translator.hpp"
 
 using json = nlohmann::json;
 using pt::Application;
 
 static const char* SingleInstanceName = "eb50e8eb-2263-44f0-894b-b56aaa9c6c54";
+
+namespace
+{
+    // Until 0.26 this program was called Brizna, and the updater of those versions installs
+    // the new version as Brizna.exe. It renames itself to HNTorrent.exe once and starts again
+    // from there (the data files move to the new names in Environment::Create).
+    bool RestartAsHNTorrent(pt::CommandLineOptions const& options)
+    {
+        std::filesystem::path exe = wxStandardPaths::Get().GetExecutablePath().ToStdWstring();
+
+        if (_wcsicmp(exe.filename().c_str(), L"Brizna.exe") != 0) { return false; }
+
+        std::filesystem::path target = exe.parent_path() / "HNTorrent.exe";
+
+        // A running executable cannot be overwritten, but it can be renamed. If this fails
+        // (a read-only folder, for example), it keeps working as Brizna.exe.
+        if (!MoveFileExW(exe.c_str(), target.c_str(), MOVEFILE_REPLACE_EXISTING))
+        {
+            return false;
+        }
+
+        std::wstring commandLine = fmt::format(L"\"{}\" --wait-for-pid={}", target.wstring(), GetCurrentProcessId());
+
+        if (options.silent) { commandLine += L" --silent"; }
+        if (!options.save_path.empty()) { commandLine += fmt::format(L" \"--save-path={}\"", pt::Utils::toStdWString(options.save_path)); }
+        for (auto const& file : options.files) { commandLine += fmt::format(L" \"{}\"", pt::Utils::toStdWString(file)); }
+        for (auto const& magnet : options.magnets) { commandLine += fmt::format(L" \"{}\"", pt::Utils::toStdWString(magnet)); }
+
+        STARTUPINFOW si = { sizeof(STARTUPINFOW) };
+        PROCESS_INFORMATION pi = {};
+
+        if (!CreateProcessW(target.c_str(), commandLine.data(), nullptr, nullptr, FALSE, 0, nullptr, target.parent_path().c_str(), &si, &pi))
+        {
+            // Better to keep the old name than not to start at all
+            MoveFileExW(target.c_str(), exe.c_str(), 0);
+            return false;
+        }
+
+        CloseHandle(pi.hThread);
+        CloseHandle(pi.hProcess);
+
+        return true;
+    }
+}
 
 Application::Application()
     : wxApp(),
@@ -92,6 +140,12 @@ bool Application::OnInit()
         return false;
     }
 
+    // The new process waits for this one to exit before it starts
+    if (RestartAsHNTorrent(m_options))
+    {
+        return false;
+    }
+
     auto env = pt::Core::Environment::Create();
     pt::UpdateChecker::CleanUp(env->GetApplicationPath());
 
@@ -102,7 +156,7 @@ bool Application::OnInit()
     {
         wxMessageBox(
             "Failed to run database migrations. Please check log file.",
-            "Brizna",
+            "HNTorrent",
             wxICON_ERROR);
         return false;
     }
@@ -121,6 +175,8 @@ bool Application::OnInit()
     {
         wxApp::MSWEnableDarkMode();
     }
+
+    UI::Theme::Install(cfg->IsDarkMode());
 
     // Load plugins
     for (auto& p : fs::directory_iterator(env->GetApplicationPath()))
@@ -216,7 +272,7 @@ void Application::ActivateOtherInstance()
     wxClient client;
     auto conn = client.MakeConnection(
         "localhost",
-        "Brizna",
+        "HNTorrent",
         "ApplicationOptions");
 
     if (conn)

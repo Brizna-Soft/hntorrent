@@ -14,6 +14,7 @@
 #include <wx/persist/toplevel.h>
 #include <wx/sizer.h>
 #include <wx/splitter.h>
+#include <wx/srchctrl.h>
 #include <wx/taskbarbutton.h>
 #include <wx/toolbar.h>
 
@@ -35,11 +36,14 @@
 #include "dialogs/addmagnetlinkdialog.hpp"
 #include "dialogs/addtorrentdialog.hpp"
 #include "dialogs/createtorrentdialog.hpp"
+#include "confirmremove.hpp"
 #include "dialogs/preferencesdialog.hpp"
+#include "filters/torrentfilter.hpp"
 #include "ids.hpp"
 #include "models/torrentlistmodel.hpp"
 #include "statusbar.hpp"
 #include "taskbaricon.hpp"
+#include "theme.hpp"
 #include "torrentcontextmenu.hpp"
 #include "torrentdetailsview.hpp"
 #include "torrentlistview.hpp"
@@ -51,7 +55,29 @@
 namespace fs = std::filesystem;
 using pt::UI::MainFrame;
 
-const char* WindowTitle = "Brizna";
+const char* WindowTitle = "HNTorrent";
+
+namespace
+{
+    // Keeps the torrents whose name contains the text of the search box (any case)
+    class NameFilter : public pt::UI::Filters::TorrentFilter
+    {
+    public:
+        explicit NameFilter(wxString const& text)
+            : m_text(text.Lower())
+        {
+        }
+
+        bool Includes(pt::BitTorrent::TorrentHandle const& torrent) override
+        {
+            wxString name = pt::Utils::toStdWString(torrent.Status().name);
+            return name.Lower().Find(m_text) != wxNOT_FOUND;
+        }
+
+    private:
+        wxString m_text;
+    };
+}
 
 #define LABEL_ICON_SIZE 16
 
@@ -88,6 +114,7 @@ MainFrame::MainFrame(std::shared_ptr<pt::Core::Environment> env, std::shared_ptr
     auto sizer = new wxBoxSizer(wxVERTICAL);
     sizer->Add(m_console, 0, wxEXPAND);
     sizer->Add(m_splitter, 1, wxEXPAND, 0);
+    sizer->Add(m_statusBar, 0, wxEXPAND);
     sizer->SetSizeHints(this);
 
     // Keyboard accelerators
@@ -103,7 +130,6 @@ MainFrame::MainFrame(std::shared_ptr<pt::Core::Environment> env, std::shared_ptr
     this->SetMenuBar(this->CreateMainMenu());
     this->CreateMainToolBar();
     this->SetSizerAndFit(sizer);
-    this->SetStatusBar(m_statusBar);
 
     this->CreateFilterMenuItems();
     this->CreateLabelMenuItems();
@@ -123,7 +149,8 @@ MainFrame::MainFrame(std::shared_ptr<pt::Core::Environment> env, std::shared_ptr
 
     if (!wxPersistenceManager::Get().RegisterAndRestore(this))
     {
-        this->SetSize(FromDIP(wxSize(450, 400)));
+        // Wide enough for the default columns of the list
+        this->SetSize(FromDIP(wxSize(940, 560)));
     }
 
     // Session events
@@ -398,7 +425,7 @@ void MainFrame::AddTorrents(std::vector<lt::add_torrent_params>& params, bool us
             auto err = i18n("some_torrents_already_in_session");
             if (params.empty()) err = i18n("all_torrents_already_in_session");
 
-            wxMessageBox(err, "Brizna", wxOK, this);
+            wxMessageBox(err, "HNTorrent", wxOK, this);
         }
     }
 
@@ -696,6 +723,7 @@ void MainFrame::CreateMainToolBar()
     auto icon = [](const char* svg) { return wxBitmapBundle::FromSVG(svg, wxSize(24, 24)); };
 
     auto toolBar = CreateToolBar(wxTB_HORIZONTAL | wxTB_FLAT | wxTB_TEXT | wxTB_NODIVIDER);
+    toolBar->SetBackgroundColour(Theme::Colors().window);
     toolBar->AddTool(ptID_EVT_ADD_TORRENT, i18n("toolbar_add_torrent"), icon(ToolbarIcons::AddTorrent), i18n("toolbar_add_torrent_help"));
     toolBar->AddTool(ptID_EVT_ADD_MAGNET_LINK, i18n("toolbar_add_magnet_link"), icon(ToolbarIcons::AddMagnetLink), i18n("toolbar_add_magnet_link_help"));
     toolBar->AddSeparator();
@@ -703,6 +731,18 @@ void MainFrame::CreateMainToolBar()
     toolBar->AddTool(ptID_TOOLBAR_PAUSE, i18n("pause"), icon(ToolbarIcons::Pause), i18n("toolbar_pause_help"));
     toolBar->AddSeparator();
     toolBar->AddTool(ptID_TOOLBAR_REMOVE, i18n("toolbar_remove"), icon(ToolbarIcons::Remove), i18n("toolbar_remove_help"));
+
+    // Search box on the right: shows only the torrents whose name contains the text
+    auto search = new wxSearchCtrl(toolBar, wxID_ANY, wxEmptyString, wxDefaultPosition, FromDIP(wxSize(220, -1)));
+    search->SetDescriptiveText(i18n("search_torrents"));
+    search->Bind(wxEVT_TEXT, [this](wxCommandEvent& evt)
+        {
+            if (evt.GetString().IsEmpty()) { m_torrentListModel->ClearFilter(); }
+            else { m_torrentListModel->SetFilter(std::make_unique<NameFilter>(evt.GetString())); }
+        });
+
+    toolBar->AddStretchableSpace();
+    toolBar->AddControl(search);
     toolBar->Realize();
 }
 
@@ -710,11 +750,7 @@ void MainFrame::OnToolBarRemove(wxCommandEvent&)
 {
     if (m_selection.empty()) { return; }
 
-    if (wxMessageBox(
-        fmt::format(i18n("confirm_remove_from_list_s"), m_selection.size()),
-        i18n("confirm_remove"),
-        wxYES_NO | wxNO_DEFAULT | wxICON_QUESTION,
-        this) != wxYES)
+    if (!ConfirmRemove(this, m_selection.size(), false, "the toolbar"))
     {
         return;
     }

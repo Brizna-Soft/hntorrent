@@ -44,6 +44,7 @@ namespace UI
         wxStaticText* m_lastUpload;
         wxStaticText* m_totalDownload;
         wxStaticText* m_totalUpload;
+        wxStaticText* m_summary;
         bool m_isDarkMode;
     };
 }

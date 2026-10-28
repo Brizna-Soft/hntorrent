@@ -1,6 +1,6 @@
 # Este archivo vive en el repositorio público Brizna-Soft/brizna-descargas (se copia desde
 # publico/ del repositorio privado en cada publicación). Cuando llega una versión nueva,
-# comprueba su firma y la publica como Release, que es de donde la baja el actualizador de Brizna.
+# comprueba sus firmas y la publica como Release, que es de donde la baja el actualizador de HNTorrent.
 name: Publicar versión
 
 on:
@@ -16,35 +16,49 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - name: Comprobar la firma
+      - name: Comprobar las firmas
         id: version
         run: |
           set -euo pipefail
-          if [ ! -f actualizacion.json ]; then echo "No hay ninguna versión para publicar."; echo "hay=no" >> "$GITHUB_OUTPUT"; exit 0; fi
-          version=$(jq -r .version actualizacion.json)
-          sha=$(jq -r .sha256 actualizacion.json)
-          firma=$(jq -r .firma actualizacion.json)
-          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "Versión inválida: $version"; exit 1; }
-          echo "$sha  Brizna-$version-x64.zip" | sha256sum -c -
-          printf 'brizna-actualizacion-v1\nversion=%s\nsha256=%s\n' "$version" "$sha" > mensaje.txt
-          python3 -c 'import sys; sys.stdout.buffer.write(bytes.fromhex(sys.argv[1]))' "$firma" > firma.bin
+          if [ ! -f hntorrent-actualizacion.json ]; then echo "No hay ninguna versión para publicar."; echo "hay=no" >> "$GITHUB_OUTPUT"; exit 0; fi
           cat > publica.pem <<'EOF'
           -----BEGIN PUBLIC KEY-----
           MCowBQYDK2VwAyEAx2Lihu4swk9jIXSv/KklFJkr+RDRd0oLiUI57fCHaz8=
           -----END PUBLIC KEY-----
           EOF
           sed -i 's/^ *//' publica.pem
-          openssl pkeyutl -verify -pubin -inkey publica.pem -rawin -in mensaje.txt -sigfile firma.bin
+          version=$(jq -r .version hntorrent-actualizacion.json)
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "Versión inválida: $version"; exit 1; }
+          # hntorrent-actualizacion.json anuncia HNTorrent-<versión>-x64.zip, y actualizacion.json el mismo
+          # programa como Brizna-<versión>-x64.zip, para las copias que todavía se llaman Brizna
+          comprobar() {
+            local manifiesto=$1 zip=$2 sha firma
+            [ "$(jq -r .version "$manifiesto")" = "$version" ] || { echo "$manifiesto no es de la versión $version"; exit 1; }
+            sha=$(jq -r .sha256 "$manifiesto")
+            firma=$(jq -r .firma "$manifiesto")
+            echo "$sha  $zip" | sha256sum -c -
+            printf 'brizna-actualizacion-v1\nversion=%s\nsha256=%s\n' "$version" "$sha" > mensaje.txt
+            python3 -c 'import sys; sys.stdout.buffer.write(bytes.fromhex(sys.argv[1]))' "$firma" > firma.bin
+            openssl pkeyutl -verify -pubin -inkey publica.pem -rawin -in mensaje.txt -sigfile firma.bin
+          }
+          comprobar hntorrent-actualizacion.json "HNTorrent-$version-x64.zip"
+          archivos="HNTorrent-$version-x64.zip hntorrent-actualizacion.json"
+          if [ -f actualizacion.json ]; then
+            comprobar actualizacion.json "Brizna-$version-x64.zip"
+            archivos="$archivos Brizna-$version-x64.zip actualizacion.json"
+          fi
           echo "hay=si" >> "$GITHUB_OUTPUT"
           echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "archivos=$archivos SHA256SUMS.txt AVISOS-DE-TERCEROS.txt" >> "$GITHUB_OUTPUT"
 
       - name: Crear la Release
         if: steps.version.outputs.hay == 'si'
         env:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ steps.version.outputs.version }}
+          ARCHIVOS: ${{ steps.version.outputs.archivos }}
         run: |
           set -euo pipefail
           if gh release view "v$VERSION" > /dev/null 2>&1; then echo "v$VERSION ya estaba publicada."; exit 0; fi
-          gh release create "v$VERSION" "Brizna-$VERSION-x64.zip" actualizacion.json SHA256SUMS.txt AVISOS-DE-TERCEROS.txt \
-            --title "Brizna $VERSION" --notes-file NOTAS.txt --target "$GITHUB_SHA"
+          # ARCHIVOS va sin comillas a propósito: es una lista de nombres sin espacios
+          gh release create "v$VERSION" $ARCHIVOS --title "HNTorrent $VERSION" --notes-file NOTAS.txt --target "$GITHUB_SHA"

@@ -1,4 +1,4 @@
-﻿# Arma AVISOS-DE-TERCEROS.txt con la licencia de cada pieza de software que va dentro de Brizna.exe.
+﻿# Arma AVISOS-DE-TERCEROS.txt con la licencia de cada pieza de software que va dentro de HNTorrent.exe.
 # Los textos salen de lo que instaló vcpkg (share\<paquete>\copyright) y de los submódulos (vendor\...),
 # así que siempre corresponden a las versiones compiladas. Lo llama compilar.ps1 después de compilar.
 param(
@@ -51,7 +51,7 @@ $vWx = Version-Wx
 
 $piezas = @(
     @{ Nombre = 'PicoTorrent'; Version = ''; Web = 'https://github.com/picotorrent/picotorrent'; Licencia = 'MIT'
-       Nota = 'Brizna es una versión modificada de PicoTorrent.'; Texto = Leer (Join-Path $codigo 'LICENSE') },
+       Nota = 'HNTorrent es una versión modificada de PicoTorrent.'; Texto = Leer (Join-Path $codigo 'LICENSE') },
     @{ Nombre = 'libtorrent (Rasterbar)'; Version = Version-Vcpkg 'libtorrent'; Web = 'https://libtorrent.org'; Licencia = 'BSD'
        Nota = 'Incluye try_signal (BSD-3-Clause) y el código de terceros que se menciona en su licencia.'; Texto = Leer (Join-Path $share 'libtorrent\copyright') },
     @{ Nombre = 'Boost'; Version = Version-Vcpkg 'boost-log'; Web = 'https://www.boost.org'; Licencia = 'Boost Software License 1.0'
@@ -85,11 +85,11 @@ $piezas = @(
 )
 
 $sb = New-Object System.Text.StringBuilder
-$titulo = 'Brizna' + $(if ($Version) { " $Version" } else { '' }) + ' - Avisos de terceros (licencias)'
+$titulo = 'HNTorrent' + $(if ($Version) { " $Version" } else { '' }) + ' - Avisos de terceros (licencias)'
 [void]$sb.AppendLine($titulo)
 [void]$sb.AppendLine('=' * $titulo.Length)
 [void]$sb.AppendLine()
-[void]$sb.AppendLine('Brizna es un cliente de BitTorrent basado en PicoTorrent (https://github.com/picotorrent/picotorrent).')
+[void]$sb.AppendLine('HNTorrent es un cliente de BitTorrent basado en PicoTorrent (https://github.com/picotorrent/picotorrent).')
 [void]$sb.AppendLine('Incluye el software de terceros que se lista abajo. Cada pieza conserva su propia licencia,')
 [void]$sb.AppendLine('cuyo texto se reproduce sin cambios (en inglés, que es el texto original y el que vale).')
 [void]$sb.AppendLine()

@@ -112,7 +112,7 @@ CreateTorrentDialog::CreateTorrentDialog(wxWindow* parent, wxWindowID id, std::s
     m_addToSession = new wxCheckBox(optionsSizer->GetStaticBox(), wxID_ANY, i18n("add_to_session"));
     m_addToSession->SetValue(true);
     m_comment = new wxTextCtrl(optionsSizer->GetStaticBox(), wxID_ANY, wxEmptyString);
-    m_creator = new wxTextCtrl(optionsSizer->GetStaticBox(), wxID_ANY, fmt::format("Brizna {0}", pt::BuildInfo::version()));
+    m_creator = new wxTextCtrl(optionsSizer->GetStaticBox(), wxID_ANY, fmt::format("HNTorrent {0}", pt::BuildInfo::version()));
 
     auto optionsGrid = new wxFlexGridSizer(2, FromDIP(7), FromDIP(25));
     optionsGrid->AddGrowableCol(1, 1);
@@ -190,7 +190,7 @@ CreateTorrentDialog::CreateTorrentDialog(wxWindow* parent, wxWindowID id, std::s
             this->SetEnabledState(true);
 
             std::string err = evt.GetPayload<std::string>();
-            wxMessageBox(err, "Brizna", wxICON_ERROR, this);
+            wxMessageBox(err, "HNTorrent", wxICON_ERROR, this);
 
             m_status->SetLabel(fmt::format(i18n("status_s"), Utils::toStdWString(err)));
         });
@@ -371,7 +371,7 @@ void CreateTorrentDialog::OnCreateTorrent(wxCommandEvent&)
 
     if (!fs::exists(p))
     {
-        wxMessageBox(i18n("no_such_file_or_directory"), "Brizna", wxICON_WARNING, this);
+        wxMessageBox(i18n("no_such_file_or_directory"), "HNTorrent", wxICON_WARNING, this);
         m_path->SetFocus();
         return;
     }

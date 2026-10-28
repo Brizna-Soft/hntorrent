@@ -9,7 +9,8 @@
 #include <memory>
 
 #include <libtorrent/info_hash.hpp>
-#include <wx/notebook.h>
+
+class wxSimplebook;
 
 namespace pt::BitTorrent { class TorrentHandle; }
 namespace pt::Core { class Configuration; }
@@ -21,7 +22,9 @@ namespace pt::UI
     class TorrentDetailsPeersPanel;
     class TorrentDetailsTrackersPanel;
 
-    class TorrentDetailsView : public wxNotebook
+    // The panel under the torrent list: a row of plain tabs (General, Files, Peers,
+    // Trackers) above the selected page.
+    class TorrentDetailsView : public wxPanel
     {
     public:
         TorrentDetailsView(wxWindow* parent, wxWindowID id, std::shared_ptr<Core::Configuration> cfg);
@@ -34,6 +37,7 @@ namespace pt::UI
     private:
         std::shared_ptr<Core::Configuration> m_cfg;
 
+        wxSimplebook* m_book;
         TorrentDetailsOverviewPanel* m_overview;
         TorrentDetailsFilesPanel* m_files;
         TorrentDetailsPeersPanel* m_peers;

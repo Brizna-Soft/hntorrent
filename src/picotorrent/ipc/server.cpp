@@ -8,7 +8,7 @@ using pt::IPC::Server;
 Server::Server(pt::UI::MainFrame* mainFrame)
     : m_frame(mainFrame)
 {
-    Create("Brizna");
+    Create("HNTorrent");
 }
 
 Server::~Server()

@@ -8,6 +8,7 @@
 #include "../../bittorrent/torrentstatus.hpp"
 #include "../../core/utils.hpp"
 #include "../filters/torrentfilter.hpp"
+#include "../theme.hpp"
 #include "../translator.hpp"
 
 using pt::BitTorrent::TorrentHandle;
@@ -237,6 +238,8 @@ bool TorrentListModel::GetAttrByRow(unsigned int row, unsigned int col, wxDataVi
 {
     auto const& hash = m_filtered.at(row);
     BitTorrent::TorrentHandle* torrent = m_torrents.at(hash);
+    auto const& colors = Theme::Colors();
+    bool changed = false;
 
     // torrent has a label and a color
     if (torrent->Label() > 0
@@ -246,6 +249,7 @@ bool TorrentListModel::GetAttrByRow(unsigned int row, unsigned int col, wxDataVi
         attr.SetBackgroundColour(
             m_labelsColors.at(
                 torrent->Label()));
+        changed = true;
     }
 
     switch (col)
@@ -256,20 +260,34 @@ bool TorrentListModel::GetAttrByRow(unsigned int row, unsigned int col, wxDataVi
 
         if (status.state == TorrentStatus::State::Error)
         {
-            attr.SetColour(*wxRED);
-            return true;
+            attr.SetColour(colors.error);
+            changed = true;
         }
 
-        return false;
+        break;
+    }
+    case Columns::Progress:
+    {
+        // The colour of the progress bar: finished in green, paused in grey, the rest in blue
+        BitTorrent::TorrentStatus  status = torrent->Status();
+
+        if (status.state == TorrentStatus::State::Error) { attr.SetColour(colors.error); }
+        else if (status.progress >= 1.0f) { attr.SetColour(colors.complete); }
+        else if (status.paused) { attr.SetColour(colors.paused); }
+        else { attr.SetColour(colors.accent); }
+
+        changed = true;
+        break;
     }
     }
 
-    return false;
+    return changed;
 }
 
-wxString TorrentListModel::GetColumnType(unsigned int) const
+wxString TorrentListModel::GetColumnType(unsigned int column) const
 {
-    return "string";
+    // The progress bar takes the percentage as a number
+    return column == Columns::Progress ? "long" : "string";
 }
 
 unsigned int TorrentListModel::GetCount() const

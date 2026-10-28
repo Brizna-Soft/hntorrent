@@ -30,6 +30,11 @@ namespace Core
 
     private:
         Environment();
+
+        // Moves the data of Brizna (the name of this program until 0.26) to the new names.
+        // Returns what was done, for the log.
+        std::string MigrateFromBrizna();
+
         std::chrono::system_clock::time_point m_startupTime;
     };
 }

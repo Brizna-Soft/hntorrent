@@ -12,17 +12,17 @@
 #include "../bittorrent/torrentstatus.hpp"
 #include "../core/utils.hpp"
 #include "../core/configuration.hpp"
+#include "theme.hpp"
 #include "translator.hpp"
 #include "widgets/pieceprogressbar.hpp"
 
 using pt::UI::TorrentDetailsOverviewPanel;
 
-static wxStaticText* BoldLabel(wxWindow* parent, wxWindowID id, wxString const& text)
+// Labels in grey and values in the normal text colour, as in the HNTorrent design
+static wxStaticText* MutedLabel(wxWindow* parent, wxWindowID id, wxString const& text)
 {
     auto s = new wxStaticText(parent, id, text);
-    auto f = s->GetFont();
-    f.SetWeight(wxFONTWEIGHT_BOLD);
-    s->SetFont(f);
+    s->SetForegroundColour(pt::UI::Theme::Colors().mutedText);
     return s;
 }
 
@@ -102,6 +102,12 @@ TorrentDetailsOverviewPanel::TorrentDetailsOverviewPanel(wxWindow* parent, wxWin
     m_totalDownload(new CopyableStaticText(this)),
     m_totalUpload(new CopyableStaticText(this))
 {
+    SetBackgroundColour(Theme::Colors().window);
+
+    // One line that sums up the selected torrent: where it is saved, peers and time left
+    m_summary = new wxStaticText(this, wxID_ANY, i18n("summary_select"), wxDefaultPosition, wxDefaultSize, wxST_ELLIPSIZE_END | wxST_NO_AUTORESIZE);
+    m_summary->SetForegroundColour(Theme::Colors().mutedText);
+
     m_sizer = new wxFlexGridSizer(cols * 2, FromDIP(10), FromDIP(10));
 
     for (int i = 0; i < cols; i++)
@@ -109,45 +115,47 @@ TorrentDetailsOverviewPanel::TorrentDetailsOverviewPanel(wxWindow* parent, wxWin
         m_sizer->AddGrowableCol(i * 2 + 1, 1);
     }
 
-    m_sizer->Add(BoldLabel(this, wxID_ANY, i18n("name")));
+    m_sizer->Add(MutedLabel(this, wxID_ANY, i18n("name")));
     m_sizer->Add(m_name, 0, wxEXPAND);
-    m_sizer->Add(BoldLabel(this, wxID_ANY, i18n("info_hash")));
+    m_sizer->Add(MutedLabel(this, wxID_ANY, i18n("info_hash")));
     m_sizer->Add(m_infoHash, 0, wxEXPAND);
 
-    m_sizer->Add(BoldLabel(this, wxID_ANY, i18n("save_path")));
+    m_sizer->Add(MutedLabel(this, wxID_ANY, i18n("save_path")));
     m_sizer->Add(m_savePath, 0, wxEXPAND);
-    m_sizer->Add(BoldLabel(this, wxID_ANY, i18n("pieces")));
+    m_sizer->Add(MutedLabel(this, wxID_ANY, i18n("pieces")));
     m_sizer->Add(m_pieces, 0, wxEXPAND);
 
-    m_sizer->Add(BoldLabel(this, wxID_ANY, i18n("comment")));
+    m_sizer->Add(MutedLabel(this, wxID_ANY, i18n("comment")));
     m_sizer->Add(m_comment, 0, wxEXPAND);
-    m_sizer->Add(BoldLabel(this, wxID_ANY, i18n("size")));
+    m_sizer->Add(MutedLabel(this, wxID_ANY, i18n("size")));
     m_sizer->Add(m_size, 0, wxEXPAND);
 
-    m_sizer->Add(BoldLabel(this, wxID_ANY, i18n("private")));
+    m_sizer->Add(MutedLabel(this, wxID_ANY, i18n("private")));
     m_sizer->Add(m_priv, 0, wxEXPAND);
-    m_sizer->Add(BoldLabel(this, wxID_ANY, i18n("ratio")));
+    m_sizer->Add(MutedLabel(this, wxID_ANY, i18n("ratio")));
     m_sizer->Add(m_ratio, 0, wxEXPAND);
 
-    m_sizer->Add(BoldLabel(this, wxID_ANY, i18n("last_download")));
+    m_sizer->Add(MutedLabel(this, wxID_ANY, i18n("last_download")));
     m_sizer->Add(m_lastDownload, 0, wxEXPAND);
-    m_sizer->Add(BoldLabel(this, wxID_ANY, i18n("last_upload")));
+    m_sizer->Add(MutedLabel(this, wxID_ANY, i18n("last_upload")));
     m_sizer->Add(m_lastUpload, 0, wxEXPAND);
 
-    m_sizer->Add(BoldLabel(this, wxID_ANY, i18n("total_download")));
+    m_sizer->Add(MutedLabel(this, wxID_ANY, i18n("total_download")));
     m_sizer->Add(m_totalDownload, 0, wxEXPAND);
-    m_sizer->Add(BoldLabel(this, wxID_ANY, i18n("total_upload")));
+    m_sizer->Add(MutedLabel(this, wxID_ANY, i18n("total_upload")));
     m_sizer->Add(m_totalUpload, 0, wxEXPAND);
 
     m_mainSizer = new wxBoxSizer(wxVERTICAL);
+    m_mainSizer->Add(m_summary, 0, wxEXPAND | wxTOP | wxRIGHT | wxLEFT, FromDIP(12));
 
+    // The piece bar, when shown, goes right after the summary (index 1, see UpdateView)
     if (showPieceProgress)
     {
         m_pieceProgress = new Widgets::PieceProgressBar(this, wxID_ANY, m_isDarkMode);
-        m_mainSizer->Add(m_pieceProgress, 0, wxEXPAND | wxTOP | wxRIGHT | wxLEFT, FromDIP(5));
+        m_mainSizer->Add(m_pieceProgress, 0, wxEXPAND | wxTOP | wxRIGHT | wxLEFT, FromDIP(10));
     }
-    
-    m_mainSizer->Add(m_sizer, 1, wxALL | wxEXPAND, FromDIP(5));
+
+    m_mainSizer->Add(m_sizer, 1, wxALL | wxEXPAND, FromDIP(12));
 
     this->SetSizer(m_mainSizer);
     this->FitInside();
@@ -198,6 +206,32 @@ void TorrentDetailsOverviewPanel::Refresh(pt::BitTorrent::TorrentHandle* torrent
     m_totalUpload->SetLabel(
         Utils::toHumanFileSize(status.allTimeUpload));
 
+    std::wstring summary = fmt::format(i18n("summary_saved_in_s"), Utils::toStdWString(status.savePath));
+
+    if (!status.paused)
+    {
+        summary += L" · " + fmt::format(i18n("summary_peers_d"), status.peersCurrent);
+    }
+
+    if (status.state == pt::BitTorrent::TorrentStatus::State::Error)
+    {
+        summary += L" · " + fmt::format(i18n("state_error"), Utils::toStdWString(status.error));
+    }
+    else if (status.progress >= 1.0f)
+    {
+        summary += L" · " + i18n("summary_complete");
+    }
+    else if (status.paused)
+    {
+        summary += L" · " + i18n("summary_paused");
+    }
+    else if (status.eta.count() > 0)
+    {
+        summary += L" · " + fmt::format(i18n("summary_ready_in_s"), SecondsToFriendly(status.eta));
+    }
+
+    m_summary->SetLabel(summary);
+
     if (auto tf = status.torrentFile.lock())
     {
         m_comment->SetLabel(tf->comment());
@@ -231,6 +265,7 @@ void TorrentDetailsOverviewPanel::Reset()
         m_pieceProgress->UpdateBitfield({});
     }
 
+    m_summary->SetLabel(i18n("summary_select"));
     m_name->SetLabel("-");
     m_infoHash->SetLabel("-");
     m_savePath->SetLabel("-");
@@ -250,11 +285,11 @@ void TorrentDetailsOverviewPanel::UpdateView(int cols, bool showPieceProgress)
     if (showPieceProgress && m_pieceProgress == nullptr)
     {
         m_pieceProgress = new Widgets::PieceProgressBar(this, wxID_ANY, m_isDarkMode);
-        m_mainSizer->Insert(0, m_pieceProgress, 0, wxEXPAND | wxTOP | wxRIGHT | wxLEFT, FromDIP(5));
+        m_mainSizer->Insert(1, m_pieceProgress, 0, wxEXPAND | wxTOP | wxRIGHT | wxLEFT, FromDIP(10));
     }
     else if (!showPieceProgress && m_pieceProgress != nullptr)
     {
-        m_mainSizer->Remove(0);
+        m_mainSizer->Remove(1);
 
         delete m_pieceProgress;
         m_pieceProgress = nullptr;

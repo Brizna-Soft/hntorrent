@@ -11,6 +11,7 @@
 #include "../bittorrent/torrentstatus.hpp"
 #include "../core/configuration.hpp"
 #include "../core/utils.hpp"
+#include "confirmremove.hpp"
 #include "dialogs/textoutputdialog.hpp"
 #include "translator.hpp"
 
@@ -224,18 +225,19 @@ TorrentContextMenu::TorrentContextMenu(wxWindow* parent, std::shared_ptr<pt::Cor
 
     Bind(
         wxEVT_MENU,
-        [&](wxCommandEvent&) { for (auto torrent : selectedTorrents) { torrent->Remove(); } },
+        [&](wxCommandEvent&)
+        {
+            if (!ConfirmRemove(m_parent, selectedTorrents.size(), false, "the context menu")) { return; }
+
+            for (auto torrent : selectedTorrents) { torrent->Remove(); }
+        },
         TorrentContextMenu::ptID_REMOVE);
 
     Bind(
         wxEVT_MENU,
         [&](wxCommandEvent&)
         {
-            if (wxMessageBox(
-                i18n("confirm_remove_description"),
-                i18n("confirm_remove"),
-                wxOK | wxCANCEL | wxICON_INFORMATION,
-                m_parent) != wxOK) { return; }
+            if (!ConfirmRemove(m_parent, selectedTorrents.size(), true, "the context menu")) { return; }
 
             for (auto torrent : selectedTorrents) { torrent->RemoveFiles(); }
         },

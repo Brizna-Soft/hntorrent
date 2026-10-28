@@ -65,7 +65,7 @@ AboutDialog::AboutDialog(wxWindow* parent, wxWindowID id)
     lv->SetItem(lv->GetItemCount() - 1, 1, "-");
     lv->SetItem(lv->GetItemCount() - 1, 2, "-");
 
-    lv->InsertItem(lv->GetItemCount(), "Brizna");
+    lv->InsertItem(lv->GetItemCount(), "HNTorrent");
     lv->SetItem(lv->GetItemCount() - 1, 1, BuildInfo::semver());
     lv->SetItem(lv->GetItemCount() - 1, 2, BuildInfo::commitish());
 

@@ -33,7 +33,7 @@ using pt::UpdateChecker;
 
 namespace
 {
-    // Public half of the key that signs every Brizna release. The private half is the
+    // Public half of the key that signs every release. The private half is the
     // BRIZNA_FIRMA_PRIVADA secret of the private repository (see clave-de-firma/LEEME-CLAVE.txt).
     const std::array<unsigned char, 32> SigningKey =
     {
@@ -41,8 +41,15 @@ namespace
         0x99, 0x2b, 0xf9, 0x10, 0xd1, 0x77, 0x4a, 0x0b, 0x89, 0x42, 0x39, 0xed, 0xf0, 0x87, 0x6b, 0x3f,
     };
 
+    // The manifest and package of each release. Versions up to 0.26 (called Brizna) read
+    // actualizacion.json and Brizna-<version>-x64.zip, which the releases keep publishing
+    // for them; that package has this same program inside as Brizna.exe.
+    const char* ManifestName = "hntorrent-actualizacion.json";
+    const char* PackagePrefix = "HNTorrent-";
+    const char* ExecutableName = "HNTorrent.exe";
+
     // The only files an update may replace
-    const std::array<const char*, 3> PackageFiles = { "Brizna.exe", "coredb.sqlite", "AVISOS-DE-TERCEROS.txt" };
+    const std::array<const char*, 3> PackageFiles = { ExecutableName, "coredb.sqlite", "AVISOS-DE-TERCEROS.txt" };
 
     const char* StagingFolder = "actualizacion-pendiente";
     const wchar_t* BackupSuffix = L".anterior";
@@ -93,7 +100,7 @@ namespace
     // Blocking HTTPS GET. Redirects are followed by hand, and only to GitHub hosts over HTTPS.
     bool HttpsGet(std::string const& url, size_t maxSize, std::string& body, std::string& error)
     {
-        InternetHandle session(WinHttpOpen(L"Brizna/1.0", WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY, WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0));
+        InternetHandle session(WinHttpOpen(L"HNTorrent/1.0", WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY, WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0));
 
         if (session.handle == nullptr)
         {
@@ -262,7 +269,8 @@ namespace
     }
 
     // The signature covers the version and the hash of the package together, so an
-    // older (signed) package cannot be presented as a newer version.
+    // older (signed) package cannot be presented as a newer version. The text keeps the
+    // "brizna" prefix of the first releases: the key and the format did not change.
     bool VerifySignature(std::string const& version, std::string const& sha256, std::string const& signatureHex)
     {
         std::vector<unsigned char> signature;
@@ -452,7 +460,7 @@ void UpdateChecker::Check(bool userInitiated)
             {
                 error = "no update address is configured";
             }
-            else if (HttpsGet(baseUrl + "/releases/latest/download/actualizacion.json", MaxManifestSize, body, error))
+            else if (HttpsGet(baseUrl + "/releases/latest/download/" + ManifestName, MaxManifestSize, body, error))
             {
                 try
                 {
@@ -542,7 +550,7 @@ void UpdateChecker::Ask(Manifest const& manifest, std::string const& baseUrl)
         return;
     }
 
-    std::string url = baseUrl + "/releases/download/v" + manifest.version + "/Brizna-" + manifest.version + "-x64.zip";
+    std::string url = baseUrl + "/releases/download/v" + manifest.version + "/" + PackagePrefix + manifest.version + "-x64.zip";
     fs::path staging = m_env->GetApplicationPath() / StagingFolder;
     auto state = m_state;
 
@@ -599,7 +607,7 @@ void UpdateChecker::Install(fs::path const& staging)
 
     for (const char* name : PackageFiles)
     {
-        fs::path target = std::string(name) == "Brizna.exe" ? exe : dir / name;
+        fs::path target = std::string(name) == ExecutableName ? exe : dir / name;
         fs::path backup = target;
         backup += BackupSuffix;
         replacements.push_back({ target, backup, fs::exists(target) });
@@ -653,7 +661,7 @@ void UpdateChecker::Install(fs::path const& staging)
     {
         fs::path source = staging / r.target.filename();
 
-        if (r.target == exe) { source = staging / "Brizna.exe"; }
+        if (r.target == exe) { source = staging / ExecutableName; }
 
         if (!MoveFileExW(source.c_str(), r.target.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_COPY_ALLOWED))
         {
@@ -671,7 +679,7 @@ void UpdateChecker::Install(fs::path const& staging)
 
     if (!CreateProcessW(exe.c_str(), commandLine.data(), nullptr, nullptr, FALSE, 0, nullptr, dir.c_str(), &si, &pi))
     {
-        // The new version is in place; it will run the next time Brizna is opened
+        // The new version is in place; it will run the next time HNTorrent is opened
         ShowError(fmt::format(i18n("update_failed_s"), fmt::format(L"start ({})", GetLastError())));
         return;
     }

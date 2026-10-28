@@ -1,6 +1,7 @@
 #include "pieceprogressbar.hpp"
 
 #include "../../core/configuration.hpp"
+#include "../theme.hpp"
 
 #include <wx/dcbuffer.h>
 #include <wx/colour.h>
@@ -39,10 +40,11 @@ void PieceProgressBar::OnPaint(wxPaintEvent&)
     RenderProgress(dc);
 }
 
+// Pieces in the accent colour inside a thin border, like the progress bars of the list
 void PieceProgressBar::RenderProgress(wxDC& dc)
 {
-    static wxColor bar("#35b1e1");
-    static wxColor darkBorder(50, 50, 50);
+    const wxColor bar = pt::UI::Theme::Colors().accent;
+    const wxColor darkBorder = pt::UI::Theme::Colors().border;
 
     if (m_bitfield.size() > 0)
     {
@@ -76,7 +78,7 @@ void PieceProgressBar::RenderProgress(wxDC& dc)
     else
     {
         dc.SetBrush(m_bgColor);
-        dc.SetPen(wxColor(190, 190, 190));
+        dc.SetPen(pt::UI::Theme::Colors().border);
         dc.DrawRectangle(this->GetClientRect());
     }
 }

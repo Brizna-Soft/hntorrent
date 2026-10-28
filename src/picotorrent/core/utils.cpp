@@ -39,8 +39,12 @@ std::string Utils::toStdString(std::wstring const& input)
 
 std::wstring Utils::toStdWString(std::string const& input)
 {
-    int size = MultiByteToWideChar(CP_UTF8, 0, input.c_str(), -1, NULL, 0);
-    std::wstring result(size, '\0');
-    MultiByteToWideChar(CP_UTF8, 0, input.c_str(), -1, &result[0], size);
+    // With the exact length (not -1) the result does not end in an extra '\0', which used to
+    // cut every text joined after it (Windows controls stop at the first '\0')
+    if (input.empty()) { return std::wstring(); }
+
+    int size = MultiByteToWideChar(CP_UTF8, 0, input.data(), static_cast<int>(input.size()), NULL, 0);
+    std::wstring result(size, L'\0');
+    MultiByteToWideChar(CP_UTF8, 0, input.data(), static_cast<int>(input.size()), &result[0], size);
     return result;
 }

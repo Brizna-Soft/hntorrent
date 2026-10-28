@@ -1,4 +1,4 @@
-# Compila Brizna cada vez que se sube un cambio a la rama version-propia (o a mano desde la pestaña Actions).
+# Compila HNTorrent cada vez que se sube un cambio a la rama version-propia (o a mano desde la pestaña Actions).
 # Deja el .zip como "artefacto" de la ejecución durante 14 días. No publica nada.
 name: Compilar
 
@@ -19,7 +19,7 @@ concurrency:
 
 jobs:
   compilar:
-    name: Compilar Brizna (x64)
+    name: Compilar HNTorrent (x64)
     # windows-2022 trae Visual Studio 2022 17.14, igual que la PC; windows-latest ya trae VS 2026.
     runs-on: windows-2022
     timeout-minutes: 150
@@ -77,6 +77,6 @@ jobs:
 
       - uses: actions/upload-artifact@v7
         with:
-          name: Brizna-x64
+          name: HNTorrent-x64
           path: ${{ runner.temp }}\paquete\*
           retention-days: 14

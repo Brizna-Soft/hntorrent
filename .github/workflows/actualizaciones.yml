@@ -2,7 +2,8 @@
 # Si hay algo nuevo: lo aplica, sube el número de versión (version.txt), compila, firma, guarda el cambio
 # en la rama version-propia y publica la versión:
 #   - como Release en este repositorio privado, y
-#   - en el repositorio público Brizna-Soft/brizna-descargas, de donde la baja el actualizador de Brizna.
+#   - en el repositorio público Brizna-Soft/brizna-descargas, de donde la baja el actualizador de HNTorrent
+#     (y el de Brizna 0.26, el nombre de antes, que así pasa solo a HNTorrent; ver empaquetar.ps1).
 # Si no hay nada nuevo, termina en un par de minutos.
 # A mano (pestaña Actions > Revisar actualizaciones > Run workflow) se puede marcar "forzar" para
 # publicar una versión nueva aunque no haya cambiado ninguna biblioteca (por ejemplo, tras un cambio de código).
@@ -17,6 +18,10 @@ on:
         description: 'Publicar una versión nueva aunque no haya bibliotecas nuevas'
         type: boolean
         default: false
+      version:
+        description: 'Número de la versión a publicar, por ejemplo 0.27.0 (vacío: el siguiente)'
+        type: string
+        default: ''
 
 permissions:
   contents: write
@@ -46,8 +51,9 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
           FORZAR: ${{ inputs.forzar }}
+          VERSION_PEDIDA: ${{ inputs.version }}
         run: |
-          $api = @{ 'User-Agent' = 'brizna'; 'Authorization' = "Bearer $env:GITHUB_TOKEN" }
+          $api = @{ 'User-Agent' = 'hntorrent'; 'Authorization' = "Bearer $env:GITHUB_TOKEN" }
           $ltAntes = (Get-Content -Raw vendor\vcpkg-overlays\ports\libtorrent\vcpkg.json | ConvertFrom-Json).version
           $vcAntes = (git -C vendor\vcpkg rev-parse HEAD).Trim()
           .\actualizar-libtorrent.ps1
@@ -60,19 +66,26 @@ jobs:
             $tag = (Invoke-RestMethod -Uri 'https://api.github.com/repos/microsoft/vcpkg/releases/latest' -Headers $api).tag_name
             $cambios += "vcpkg $tag (Boost, OpenSSL y demas)"
           }
-          if ($cambios.Count -eq 0 -and $env:FORZAR -eq 'true') { $cambios += 'publicacion manual' }
+          if ($cambios.Count -eq 0 -and ($env:FORZAR -eq 'true' -or $env:VERSION_PEDIDA)) { $cambios += 'publicacion manual' }
           if ($cambios.Count -eq 0) {
             'hay=no' | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
             Write-Host 'Todo al dia: no hay versiones nuevas.'
             exit 0
           }
-          $v = (Get-Content version.txt -TotalCount 1).Trim().Split('.')
+          $actual = (Get-Content version.txt -TotalCount 1).Trim()
+          $v = $actual.Split('.')
           $nueva = '{0}.{1}.{2}' -f $v[0], $v[1], ([int]$v[2] + 1)
+          # Un número pedido a mano (por ejemplo, al cambiar el nombre) tiene que ser mayor que el actual
+          if ($env:VERSION_PEDIDA) {
+            if ($env:VERSION_PEDIDA -notmatch '^\d+\.\d+\.\d+$') { throw "Version invalida: $env:VERSION_PEDIDA" }
+            if ([version]$env:VERSION_PEDIDA -le [version]$actual) { throw "La version $env:VERSION_PEDIDA no es mayor que $actual" }
+            $nueva = $env:VERSION_PEDIDA
+          }
           Set-Content -Path version.txt -Value $nueva -Encoding ascii
           'hay=si' | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
           "version=$nueva" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
           "cambios=$($cambios -join '; ')" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
-          Write-Host "Hay cambios: $($cambios -join '; ') -> Brizna $nueva"
+          Write-Host "Hay cambios: $($cambios -join '; ') -> HNTorrent $nueva"
 
       - name: Traer el resto del código
         if: steps.buscar.outputs.hay == 'si'
@@ -135,12 +148,12 @@ jobs:
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           # Solo lo que cambia la revisión: nada de lo que genera la compilación
           git add -- version.txt vendor/vcpkg vendor/vcpkg-overlays
-          git commit -m "Brizna $env:VERSION`: $env:CAMBIOS"
+          git commit -m "HNTorrent $env:VERSION`: $env:CAMBIOS"
           git push origin HEAD:version-propia
           if ($LASTEXITCODE -ne 0) { throw 'No se pudo guardar el cambio en version-propia' }
           $archivos = (Get-ChildItem "$env:RUNNER_TEMP\paquete\*").FullName
           $notas = "Actualizacion automatica.`n`n$env:CAMBIOS"
-          gh release create "v$env:VERSION" $archivos --title "Brizna $env:VERSION" --notes $notas --target (git rev-parse HEAD)
+          gh release create "v$env:VERSION" $archivos --title "HNTorrent $env:VERSION" --notes $notas --target (git rev-parse HEAD)
           if ($LASTEXITCODE -ne 0) { throw 'No se pudo publicar la version' }
 
       # Sube README, su flujo de publicación y la versión firmada al repositorio público con una
@@ -166,7 +179,7 @@ jobs:
             [IO.File]::WriteAllText($llave, $texto + "`n")
             icacls $llave /inheritance:r /grant:r "$($env:USERNAME):(F)" | Out-Null
             if ($LASTEXITCODE -ne 0) { throw 'No se pudieron restringir los permisos de la clave' }
-            $meta = Invoke-RestMethod -Uri 'https://api.github.com/meta' -Headers @{ 'User-Agent' = 'brizna' }
+            $meta = Invoke-RestMethod -Uri 'https://api.github.com/meta' -Headers @{ 'User-Agent' = 'hntorrent' }
             $hosts = Join-Path $ssh 'known_hosts'
             [IO.File]::WriteAllLines($hosts, [string[]]($meta.ssh_keys | ForEach-Object { "github.com $_" }))
             $env:GIT_SSH_COMMAND = "C:/Windows/System32/OpenSSH/ssh.exe -i '$($llave -replace '\\', '/')' -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile='$($hosts -replace '\\', '/')'"
@@ -176,13 +189,13 @@ jobs:
             New-Item -ItemType Directory -Force $publico | Out-Null
             Copy-Item -Recurse -Force publico\* $publico
             Copy-Item -Force "$env:RUNNER_TEMP\paquete\*" $publico
-            $notas = "Brizna $env:VERSION`n`n$env:CAMBIOS`n`nCada archivo esta firmado: Brizna comprueba la firma antes de instalar una actualizacion.`n"
+            $notas = "HNTorrent $env:VERSION`n`n$env:CAMBIOS`n`nCada archivo esta firmado: HNTorrent comprueba la firma antes de instalar una actualizacion.`nBrizna-$env:VERSION-x64.zip es el mismo programa para las copias que todavia se llaman Brizna.`n"
             [IO.File]::WriteAllText((Join-Path $publico 'NOTAS.txt'), $notas)
             git -C $publico init -q -b main
             git -C $publico config user.name 'github-actions[bot]'
             git -C $publico config user.email '41898282+github-actions[bot]@users.noreply.github.com'
             git -C $publico add -A
-            git -C $publico commit -q -m "Brizna $env:VERSION"
+            git -C $publico commit -q -m "HNTorrent $env:VERSION"
             git -C $publico push --force "git@github.com:$env:REPO_DESCARGAS.git" main
             if ($LASTEXITCODE -ne 0) { throw 'No se pudo subir al repositorio de descargas' }
           }
