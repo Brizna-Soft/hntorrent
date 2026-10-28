@@ -1,61 +1,72 @@
-# PicoTorrent
+# HNTorrent
 
-![CI](https://github.com/picotorrent/picotorrent/workflows/CI/badge.svg)
-[![Discord](https://img.shields.io/discord/759537913205227580)](https://discord.gg/tV3dFrv)
+**Cliente de BitTorrent liviano y gratis para Windows.** En español, sin publicidad y sin recoger datos. Hecho por
+[Brizna Soft](https://brizna-soft.github.io) en Honduras.
 
-A tiny, hackable BitTorrent client written in modern C++. Based on
-Rasterbar-libtorrent to provide high performance and low memory usage.
+Este repositorio es el **código**. Para bajar el programa, ve a
+**[hntorrent-descargas](https://github.com/Brizna-Soft/hntorrent-descargas/releases/latest)**.
 
-<p align="center">
-    <img src="res/screenshot1.png?raw=true" width="614" />
-</p>
+## De dónde viene
 
+HNTorrent nace de [PicoTorrent](https://github.com/picotorrent/picotorrent), de Viktor Elofsson y colaboradores
+(licencia MIT), que dejó de actualizarse en 2023. Usa [libtorrent](https://libtorrent.org) para bajar y compartir,
+y [wxWidgets](https://www.wxwidgets.org) para la ventana.
 
-## Quick facts
+**Lo que cambiamos:**
 
-- Full support for BitTorrent 2.0 ([BEP-52](http://bittorrent.org/beps/bep_0052.html)), v1, v2 and v1+v2 hybrid torrents.
-- Supports DHT, PeX, LSD, UPnP.
-- (Azureus-style) peer ID: `-PI-`. Example: `-PI0151-` (major: 0, minor: 15, patch: 1).
-- User agent: `PicoTorrent/x.y.z`.
-- Native look-and-feel across Windows versions.
-- Easy to use with high performance.
+- **Bibliotecas al día:** libtorrent 2.0.15, wxWidgets 3.3.4, y vcpkg 2026.10.16 con Boost, OpenSSL y SQLite.
+- **Sin informes a terceros:** quitamos Crashpad, que mandaba informes de fallos a un servidor externo, y el
+  buscador de actualizaciones viejo.
+- **Actualizador propio:**
+  - cada versión va firmada con Ed25519 y el programa comprueba la firma antes de instalarla;
+  - la firma cubre la versión y la huella SHA-256 del paquete, así que nadie puede colar una versión vieja ni
+    cambiar el archivo.
+- **Interfaz nueva:** en español, con tema claro y oscuro, y confirmación antes de quitar un torrent.
 
-*The portable version of PicoTorrent requires manual installation of [the Microsoft Visual C++ Redistributable for Visual Studio 2019](https://visualstudio.microsoft.com/downloads/).*
+## Cómo se publica cada versión
 
+- **`.github/workflows/compilar.yml`** compila en cada cambio.
+- **`.github/workflows/actualizaciones.yml`** revisa cada lunes si hay versiones nuevas de libtorrent y de las
+  bibliotecas. Si las hay, compila, firma y publica en
+  [hntorrent-descargas](https://github.com/Brizna-Soft/hntorrent-descargas). También se puede lanzar a mano.
+- **Las claves:**
+  - la privada solo vive como secreto de GitHub y nunca está en el código;
+  - la pública va dentro del programa, en `src/picotorrent/updatechecker.cpp`.
 
-## Download for Windows
+Así, cada .zip que bajas lo armó GitHub a partir de este mismo código.
 
-[![Download zip](https://custom-icon-badges.demolab.com/badge/-Download-blue?style=for-the-badge&logo=download&logoColor=white "Download zip")](https://github.com/picotorrent/picotorrent/releases)
+## Compilar
 
-
-## Building PicoTorrent
-
-To successfully build PicoTorrent, you need the following libraries and
-applications installed,
-
- * [CMake (>= v3.14)](https://cmake.org/download/).
- * [Visual Studio 2019 Build Tools](https://visualstudio.microsoft.com/downloads/) (or regular Visual Studio 2019) with the C++ toolset.
- * [OpenSSL v1.1.1](https://slproweb.com/products/Win32OpenSSL.html) (*not*
-   the light version) for the architecture you plan on building. Both Win32
-   and Win64 can be installed side by side.
- * [Boost 1.73.0](https://www.boost.org).
- * [Chocolatey](https://chocolatey.org/install) (Optional) if you plan to build
-   or test the Chocolatey package.
- * [.NET Core](https://dotnet.microsoft.com/download). Used for the build scripts.
+Necesitas Visual Studio 2022 (o sus Build Tools) con C++, y Git.
 
 ```
-λ git submodule update --init --recursive
-λ dotnet tool restore
-λ dotnet cake --platorm=[x86|x64] --configuration=[Debug|Release]
+git clone --recurse-submodules https://github.com/Brizna-Soft/hntorrent.git
+cd hntorrent
+powershell -ExecutionPolicy Bypass -File compilar.ps1
 ```
 
+La primera vez tarda, porque vcpkg compila Boost, OpenSSL y libtorrent. El programa queda en `..\programa`.
 
-## Translations
+Otros scripts:
+- `actualizar-libtorrent.ps1` y `actualizar-vcpkg.ps1`: suben las versiones de las bibliotecas.
+- `empaquetar.ps1`: arma el .zip.
+- `generar-avisos.ps1`: junta las licencias de terceros en `AVISOS-DE-TERCEROS.txt`.
 
-PicoTorrent uses [Weblate](https://translate.picotorrent.org/) to handle the translation process. If you want to help, feel free to signup and give your contribution.
+## ¿Algo falla?
 
+[Reporta el problema aquí](https://github.com/Brizna-Soft/hntorrent-descargas/issues/new/choose). Cuéntanos qué
+pasó y qué esperabas.
 
-## License
+## Apoyar
 
-Copyright (c) Viktor Elofsson and contributors. PicoTorrent is provided
-as-is under the MIT license. For more information see [LICENSE](LICENSE).
+HNTorrent es y seguirá siendo gratis. Si te sirve, puedes apoyar a Brizna Soft con una
+[donación por PayPal](https://paypal.me/BriznaSoft).
+
+## Licencia
+
+- **Licencia MIT**, igual que PicoTorrent: © 2015 Viktor Elofsson y colaboradores; © 2026 Brizna Soft por los
+  cambios.
+- **Bibliotecas:** cada una tiene su licencia, y van juntas en `AVISOS-DE-TERCEROS.txt` dentro de cada versión.
+- **Solo para torrents legales:** HNTorrent no trae ni recomienda buscadores de torrents.
+
+Hecho con ayuda de IA.

@@ -34,7 +34,7 @@ using pt::UpdateChecker;
 namespace
 {
     // Public half of the key that signs every release. The private half is the
-    // BRIZNA_FIRMA_PRIVADA secret of the private repository (see clave-de-firma/LEEME-CLAVE.txt).
+    // BRIZNA_FIRMA_PRIVADA secret of this repository (never in the code).
     const std::array<unsigned char, 32> SigningKey =
     {
         0xc7, 0x62, 0xe2, 0x86, 0xee, 0x2c, 0xc2, 0x4f, 0x63, 0x21, 0x74, 0xaf, 0xfc, 0xa9, 0x25, 0x14,
