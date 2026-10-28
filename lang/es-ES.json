@@ -157,6 +157,8 @@
     "add_link_s": "Añadir enlace(s)",
     "miscellaneous": "Misceláneo",
     "start_with_windows": "Iniciar HNTorrent con Windows",
+    "check_for_updates_on_start": "Buscar versiones nuevas al abrir HNTorrent",
+    "check_for_updates_on_start_help": "HNTorrent solo le pregunta a GitHub si hay una versión nueva. No manda tus datos.",
     "start_position": "Posición de inicio",
     "hidden": "Bandeja del sistema",
     "minimized": "Minimizado",

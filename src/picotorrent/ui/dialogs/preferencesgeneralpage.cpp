@@ -102,6 +102,8 @@ PreferencesGeneralPage::PreferencesGeneralPage(wxWindow* parent, std::shared_ptr
     m_labelColor = new wxCheckBox(miscSizer->GetStaticBox(), wxID_ANY, i18n("use_label_color_as_background_in_torrent_list"));
     m_skipAddTorrentDialog = new wxCheckBox(miscSizer->GetStaticBox(), wxID_ANY, i18n("skip_add_torrent_dialog"));
     m_autoStart = new wxCheckBox(miscSizer->GetStaticBox(), wxID_ANY, i18n("start_with_windows"));
+    m_checkForUpdates = new wxCheckBox(miscSizer->GetStaticBox(), wxID_ANY, i18n("check_for_updates_on_start"));
+    m_checkForUpdates->SetToolTip(i18n("check_for_updates_on_start_help"));
     m_startPosition = new wxChoice(miscSizer->GetStaticBox(), wxID_ANY);
 
     miscGrid->AddGrowableCol(1, 1);
@@ -110,6 +112,8 @@ PreferencesGeneralPage::PreferencesGeneralPage(wxWindow* parent, std::shared_ptr
     miscGrid->Add(m_skipAddTorrentDialog, 0, wxALIGN_CENTER_VERTICAL);
     miscGrid->Add(0, 0);
     miscGrid->Add(m_autoStart, 0, wxALIGN_CENTER_VERTICAL);
+    miscGrid->Add(0, 0);
+    miscGrid->Add(m_checkForUpdates, 0, wxALIGN_CENTER_VERTICAL);
     miscGrid->Add(0, 0);
     miscGrid->Add(new wxStaticText(miscSizer->GetStaticBox(), wxID_ANY, i18n("start_position")), 0, wxALIGN_CENTER_VERTICAL);
     miscGrid->Add(m_startPosition, 1, wxALIGN_RIGHT | wxALIGN_CENTER_VERTICAL);
@@ -161,6 +165,7 @@ PreferencesGeneralPage::PreferencesGeneralPage(wxWindow* parent, std::shared_ptr
 
     m_labelColor->SetValue(m_cfg->Get<bool>("use_label_as_list_bgcolor").value());
     m_skipAddTorrentDialog->SetValue(m_cfg->Get<bool>("skip_add_torrent_dialog").value());
+    m_checkForUpdates->SetValue(m_cfg->Get<bool>("update_checks.enabled").value_or(true));
 
     AutoRunKey key;
     if (key.Exists())
@@ -215,7 +220,8 @@ void PreferencesGeneralPage::Save(bool* restartRequired)
 
     if (langData != nullptr)
     {
-        if (langData->GetValue() != m_cfg->Get<std::string>("locale_name"))
+        // Compare with the language in use, since locale_name is empty until the first save
+        if (langData->GetValue() != Translator::GetInstance().GetLocale())
         {
             *restartRequired = true;
         }
@@ -253,6 +259,7 @@ void PreferencesGeneralPage::Save(bool* restartRequired)
 
     m_cfg->Set("use_label_as_list_bgcolor", m_labelColor->GetValue());
     m_cfg->Set("skip_add_torrent_dialog", m_skipAddTorrentDialog->GetValue());
+    m_cfg->Set("update_checks.enabled", m_checkForUpdates->GetValue());
     m_cfg->Set("show_in_notification_area", m_showNotificationIcon->GetValue());
     m_cfg->Set("minimize_to_notification_area", m_minimizeNotification->GetValue());
     m_cfg->Set("close_to_notification_area", m_closeNotification->GetValue());

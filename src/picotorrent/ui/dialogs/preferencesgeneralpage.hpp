@@ -34,6 +34,7 @@ namespace Dialogs
         wxCheckBox* m_labelColor;
         wxCheckBox* m_skipAddTorrentDialog;
         wxCheckBox* m_autoStart;
+        wxCheckBox* m_checkForUpdates;
         wxChoice* m_startPosition;
         wxCheckBox* m_showNotificationIcon;
         wxCheckBox* m_minimizeNotification;

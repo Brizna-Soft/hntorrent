@@ -134,6 +134,8 @@
     "add_magnet_link_s": "Add magnet link(s)",
     "miscellaneous": "Miscellaneous",
     "start_with_windows": "Start HNTorrent with Windows",
+    "check_for_updates_on_start": "Check for new versions when HNTorrent starts",
+    "check_for_updates_on_start_help": "HNTorrent only asks GitHub whether there is a new version. It does not send your data.",
     "start_position": "Start position",
     "hidden": "System tray",
     "minimized": "Minimized",
