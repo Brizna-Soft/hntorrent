@@ -1,7 +1,7 @@
 # Cada lunes revisa si salió una libtorrent 2.0.x nueva o una versión nueva de vcpkg (Boost, OpenSSL y demás).
 # Si hay algo nuevo: lo aplica, sube el número de versión (version.txt), compila, firma, guarda el cambio
 # en la rama version-propia y publica la versión:
-#   - como Release en este repositorio privado, y
+#   - como Release en este repositorio (es público desde el 28/10/2026), y
 #   - en el repositorio público Brizna-Soft/hntorrent-descargas, de donde la baja el actualizador de HNTorrent
 #     (y el de Brizna 0.26, el nombre de antes, que así pasa solo a HNTorrent; ver empaquetar.ps1). Ese
 #     repositorio se llamaba brizna-descargas: GitHub lleva las direcciones viejas a la nueva.
