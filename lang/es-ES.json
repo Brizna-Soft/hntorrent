@@ -1,6 +1,6 @@
 ﻿{
     "update_title": "Actualización de Brizna",
-    "update_available_s": "Hay una versión nueva de Brizna: {0} (tienes la {1}).\n\n¿La instalo ahora? Brizna se va a reiniciar.",
+    "update_available_s": "Hay una versión nueva de Brizna: {0}\n\nTienes la {1}. ¿La instalo ahora? Brizna se va a reiniciar.",
     "update_install_now": "Instalar ahora",
     "update_not_now": "Ahora no",
     "update_up_to_date_s": "Ya tienes la última versión de Brizna ({0}).",

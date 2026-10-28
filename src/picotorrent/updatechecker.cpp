@@ -2,7 +2,9 @@
 
 #include <algorithm>
 #include <array>
+#include <cwctype>
 #include <regex>
+#include <set>
 #include <thread>
 #include <vector>
 
@@ -43,8 +45,11 @@ namespace
     const std::array<const char*, 3> PackageFiles = { "Brizna.exe", "coredb.sqlite", "AVISOS-DE-TERCEROS.txt" };
 
     const char* StagingFolder = "actualizacion-pendiente";
+    const wchar_t* BackupSuffix = L".anterior";
     const size_t MaxManifestSize = 64 * 1024;
     const size_t MaxPackageSize = 200 * 1024 * 1024;
+    const size_t MaxEntrySize = 150 * 1024 * 1024;
+    const int MaxRedirects = 5;
 
     struct InternetHandle
     {
@@ -56,25 +61,38 @@ namespace
         HINTERNET handle;
     };
 
-    // Blocking HTTPS GET. WinHTTP follows the redirects GitHub uses for release assets.
-    bool HttpsGet(std::string const& url, size_t maxSize, std::string& body, std::string& error)
+    // Releases live on github.com and are served from *.githubusercontent.com
+    bool IsAllowedHost(std::wstring host)
     {
-        std::wstring wideUrl = pt::Utils::toStdWString(url);
+        std::transform(host.begin(), host.end(), host.begin(), [](wchar_t c) { return static_cast<wchar_t>(std::towlower(c)); });
 
-        URL_COMPONENTS uc = { sizeof(URL_COMPONENTS) };
-        uc.dwHostNameLength = DWORD(-1);
-        uc.dwUrlPathLength = DWORD(-1);
-        uc.dwExtraInfoLength = DWORD(-1);
+        const std::wstring cdn = L".githubusercontent.com";
 
-        if (!WinHttpCrackUrl(wideUrl.c_str(), 0, 0, &uc) || uc.nScheme != INTERNET_SCHEME_HTTPS)
+        return host == L"github.com"
+            || (host.size() > cdn.size() && host.compare(host.size() - cdn.size(), cdn.size(), cdn) == 0);
+    }
+
+    std::wstring QueryHeader(HINTERNET request, DWORD header)
+    {
+        DWORD size = 0;
+        WinHttpQueryHeaders(request, header, WINHTTP_HEADER_NAME_BY_INDEX, WINHTTP_NO_OUTPUT_BUFFER, &size, WINHTTP_NO_HEADER_INDEX);
+
+        if (size == 0) { return L""; }
+
+        std::wstring value(size / sizeof(wchar_t), L'\0');
+
+        if (!WinHttpQueryHeaders(request, header, WINHTTP_HEADER_NAME_BY_INDEX, &value[0], &size, WINHTTP_NO_HEADER_INDEX))
         {
-            error = "invalid url " + url;
-            return false;
+            return L"";
         }
 
-        std::wstring host(uc.lpszHostName, uc.dwHostNameLength);
-        std::wstring path = std::wstring(uc.lpszUrlPath, uc.dwUrlPathLength) + std::wstring(uc.lpszExtraInfo, uc.dwExtraInfoLength);
+        value.resize(size / sizeof(wchar_t));
+        return value;
+    }
 
+    // Blocking HTTPS GET. Redirects are followed by hand, and only to GitHub hosts over HTTPS.
+    bool HttpsGet(std::string const& url, size_t maxSize, std::string& body, std::string& error)
+    {
         InternetHandle session(WinHttpOpen(L"Brizna/1.0", WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY, WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0));
 
         if (session.handle == nullptr)
@@ -85,64 +103,106 @@ namespace
 
         WinHttpSetTimeouts(session.handle, 15000, 15000, 30000, 60000);
 
-        InternetHandle connect(WinHttpConnect(session.handle, host.c_str(), uc.nPort, 0));
-        InternetHandle request(connect.handle != nullptr
-            ? WinHttpOpenRequest(connect.handle, L"GET", path.c_str(), nullptr, WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES, WINHTTP_FLAG_SECURE)
-            : nullptr);
+        std::wstring current = pt::Utils::toStdWString(url);
 
-        if (request.handle == nullptr
-            || !WinHttpSendRequest(request.handle, WINHTTP_NO_ADDITIONAL_HEADERS, 0, WINHTTP_NO_REQUEST_DATA, 0, 0, 0)
-            || !WinHttpReceiveResponse(request.handle, nullptr))
+        for (int hop = 0; hop <= MaxRedirects; hop++)
         {
-            error = fmt::format("request failed ({})", GetLastError());
-            return false;
-        }
+            URL_COMPONENTS uc = { sizeof(URL_COMPONENTS) };
+            uc.dwHostNameLength = DWORD(-1);
+            uc.dwUrlPathLength = DWORD(-1);
+            uc.dwExtraInfoLength = DWORD(-1);
 
-        DWORD status = 0;
-        DWORD statusSize = sizeof(status);
-        WinHttpQueryHeaders(request.handle, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER, WINHTTP_HEADER_NAME_BY_INDEX, &status, &statusSize, WINHTTP_NO_HEADER_INDEX);
-
-        if (status != 200)
-        {
-            error = fmt::format("HTTP {}", status);
-            return false;
-        }
-
-        body.clear();
-
-        for (;;)
-        {
-            DWORD available = 0;
-
-            if (!WinHttpQueryDataAvailable(request.handle, &available))
+            if (!WinHttpCrackUrl(current.c_str(), 0, 0, &uc) || uc.nScheme != INTERNET_SCHEME_HTTPS)
             {
-                error = fmt::format("read failed ({})", GetLastError());
+                error = "only https addresses are allowed";
                 return false;
             }
 
-            if (available == 0) { break; }
+            std::wstring host(uc.lpszHostName, uc.dwHostNameLength);
+            std::wstring path = std::wstring(uc.lpszUrlPath, uc.dwUrlPathLength) + std::wstring(uc.lpszExtraInfo, uc.dwExtraInfoLength);
 
-            if (body.size() + available > maxSize)
+            if (!IsAllowedHost(host))
             {
-                error = "response too large";
+                error = "unexpected host " + pt::Utils::toStdString(host);
                 return false;
             }
 
-            size_t offset = body.size();
-            body.resize(offset + available);
+            InternetHandle connect(WinHttpConnect(session.handle, host.c_str(), uc.nPort, 0));
+            InternetHandle request(connect.handle != nullptr
+                ? WinHttpOpenRequest(connect.handle, L"GET", path.c_str(), nullptr, WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES, WINHTTP_FLAG_SECURE)
+                : nullptr);
 
-            DWORD read = 0;
+            DWORD disableRedirects = WINHTTP_DISABLE_REDIRECTS;
 
-            if (!WinHttpReadData(request.handle, &body[offset], available, &read))
+            if (request.handle == nullptr
+                || !WinHttpSetOption(request.handle, WINHTTP_OPTION_DISABLE_FEATURE, &disableRedirects, sizeof(disableRedirects))
+                || !WinHttpSendRequest(request.handle, WINHTTP_NO_ADDITIONAL_HEADERS, 0, WINHTTP_NO_REQUEST_DATA, 0, 0, 0)
+                || !WinHttpReceiveResponse(request.handle, nullptr))
             {
-                error = fmt::format("read failed ({})", GetLastError());
+                error = fmt::format("request failed ({})", GetLastError());
                 return false;
             }
 
-            body.resize(offset + read);
+            DWORD status = 0;
+            DWORD statusSize = sizeof(status);
+            WinHttpQueryHeaders(request.handle, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER, WINHTTP_HEADER_NAME_BY_INDEX, &status, &statusSize, WINHTTP_NO_HEADER_INDEX);
+
+            if (status == 301 || status == 302 || status == 303 || status == 307 || status == 308)
+            {
+                current = QueryHeader(request.handle, WINHTTP_QUERY_LOCATION);
+
+                if (current.empty())
+                {
+                    error = "redirect without a location";
+                    return false;
+                }
+
+                continue;
+            }
+
+            if (status != 200)
+            {
+                error = fmt::format("HTTP {}", status);
+                return false;
+            }
+
+            body.clear();
+
+            for (;;)
+            {
+                DWORD available = 0;
+
+                if (!WinHttpQueryDataAvailable(request.handle, &available))
+                {
+                    error = fmt::format("read failed ({})", GetLastError());
+                    return false;
+                }
+
+                if (available == 0) { return true; }
+
+                if (body.size() + available > maxSize)
+                {
+                    error = "response too large";
+                    return false;
+                }
+
+                size_t offset = body.size();
+                body.resize(offset + available);
+
+                DWORD read = 0;
+
+                if (!WinHttpReadData(request.handle, &body[offset], available, &read))
+                {
+                    error = fmt::format("read failed ({})", GetLastError());
+                    return false;
+                }
+
+                body.resize(offset + read);
+            }
         }
 
-        return true;
+        error = "too many redirects";
+        return false;
     }
 
     std::string ToHex(unsigned char const* data, size_t length)
@@ -237,6 +297,7 @@ namespace
         return true;
     }
 
+    // Writes exactly one copy of each known file into the staging folder, with size limits
     bool ExtractPackage(std::string const& zip, fs::path const& staging, std::string& error)
     {
         std::error_code ec;
@@ -252,7 +313,8 @@ namespace
         wxMemoryInputStream input(zip.data(), zip.size());
         wxZipInputStream archive(input);
         std::unique_ptr<wxZipEntry> entry;
-        size_t found = 0;
+        std::set<std::string> extracted;
+        std::vector<char> buffer(64 * 1024);
 
         for (entry.reset(archive.GetNextEntry()); entry != nullptr; entry.reset(archive.GetNextEntry()))
         {
@@ -264,18 +326,53 @@ namespace
                 continue;
             }
 
+            if (!extracted.insert(name).second)
+            {
+                error = "the package has " + name + " twice";
+                return false;
+            }
+
             wxFFileOutputStream output((staging / name).wstring());
 
-            if (!output.IsOk() || (!archive.Read(output).IsOk() && archive.GetLastError() != wxSTREAM_EOF))
+            if (!output.IsOk())
+            {
+                error = "cannot write " + name;
+                return false;
+            }
+
+            size_t total = 0;
+
+            for (;;)
+            {
+                archive.Read(buffer.data(), buffer.size());
+                size_t read = archive.LastRead();
+
+                if (read == 0) { break; }
+
+                total += read;
+
+                if (total > MaxEntrySize)
+                {
+                    error = name + " is too large";
+                    return false;
+                }
+
+                if (!output.WriteAll(buffer.data(), read))
+                {
+                    error = "cannot write " + name;
+                    return false;
+                }
+            }
+
+            // A CRC mismatch shows up as a read error at the end of the entry
+            if (archive.GetLastError() != wxSTREAM_EOF && archive.GetLastError() != wxSTREAM_NO_ERROR)
             {
                 error = "cannot extract " + name;
                 return false;
             }
-
-            found++;
         }
 
-        if (found != PackageFiles.size())
+        if (extracted.size() != PackageFiles.size())
         {
             error = "the package is incomplete";
             return false;
@@ -295,7 +392,23 @@ UpdateChecker::UpdateChecker(wxFrame* frame, std::shared_ptr<pt::Core::Configura
 
 UpdateChecker::~UpdateChecker()
 {
+    std::lock_guard<std::mutex> guard(m_state->lock);
     m_state->alive = false;
+}
+
+void UpdateChecker::PostToUi(std::shared_ptr<State> const& state, std::function<void()> fn)
+{
+    std::lock_guard<std::mutex> guard(state->lock);
+
+    if (state->alive)
+    {
+        wxTheApp->CallAfter(
+            [state, fn]()
+            {
+                // Runs on the UI thread, where the checker is destroyed, so no lock is needed here
+                if (state->alive) { fn(); }
+            });
+    }
 }
 
 void UpdateChecker::CleanUp(fs::path const& appDir)
@@ -361,11 +474,9 @@ void UpdateChecker::Check(bool userInitiated)
             BOOST_LOG_TRIVIAL(info) << "Update check: current " << current << ", available " << manifest.version
                 << (error.empty() ? "" : ", error: " + error);
 
-            wxTheApp->CallAfter(
+            PostToUi(state,
                 [this, state, manifest, baseUrl, error, newer, userInitiated]()
                 {
-                    if (!state->alive) { return; }
-
                     if (!error.empty())
                     {
                         state->busy = false;
@@ -443,11 +554,9 @@ void UpdateChecker::Ask(Manifest const& manifest, std::string const& baseUrl)
                 }
             }
 
-            wxTheApp->CallAfter(
+            PostToUi(state,
                 [this, state, staging, error]()
                 {
-                    if (!state->alive) { return; }
-
                     state->busy = false;
 
                     if (!error.empty())
@@ -466,26 +575,63 @@ void UpdateChecker::Install(fs::path const& staging)
 {
     fs::path exe = wxStandardPaths::Get().GetExecutablePath().ToStdWstring();
     fs::path dir = exe.parent_path();
-    fs::path previous = exe;
-    previous += ".anterior";
 
-    // A running executable cannot be overwritten, but it can be renamed. The previous
-    // version stays as <name>.anterior until the next update, as a way back.
-    if (!MoveFileExW(exe.c_str(), previous.c_str(), MOVEFILE_REPLACE_EXISTING))
+    struct Replacement
     {
-        ShowError(fmt::format(i18n("update_failed_s"), fmt::format(L"rename {} ({})", exe.wstring(), GetLastError())));
-        return;
-    }
+        fs::path target;
+        fs::path backup;
+        bool hadOriginal;
+    };
+
+    std::vector<Replacement> replacements;
 
     for (const char* name : PackageFiles)
     {
         fs::path target = std::string(name) == "Brizna.exe" ? exe : dir / name;
+        fs::path backup = target;
+        backup += BackupSuffix;
+        replacements.push_back({ target, backup, fs::exists(target) });
+    }
 
-        if (!MoveFileExW((staging / name).c_str(), target.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_COPY_ALLOWED))
+    // Puts every original file back and removes the new ones that had no original
+    auto restore = [&replacements](size_t count)
+    {
+        for (size_t i = 0; i < count; i++)
+        {
+            Replacement const& r = replacements[i];
+
+            if (r.hadOriginal) { MoveFileExW(r.backup.c_str(), r.target.c_str(), MOVEFILE_REPLACE_EXISTING); }
+            else { DeleteFileW(r.target.c_str()); }
+        }
+    };
+
+    // 1. Move the current files aside. A running executable cannot be overwritten, but it
+    //    can be renamed. The previous version stays as <name>.anterior until the next update.
+    for (size_t i = 0; i < replacements.size(); i++)
+    {
+        Replacement const& r = replacements[i];
+
+        if (r.hadOriginal && !MoveFileExW(r.target.c_str(), r.backup.c_str(), MOVEFILE_REPLACE_EXISTING))
         {
             DWORD err = GetLastError();
-            MoveFileExW(previous.c_str(), exe.c_str(), MOVEFILE_REPLACE_EXISTING);
-            ShowError(fmt::format(i18n("update_failed_s"), fmt::format(L"move {} ({})", Utils::toStdWString(name), err)));
+            restore(i);
+            ShowError(fmt::format(i18n("update_failed_s"), fmt::format(L"rename {} ({})", r.target.filename().wstring(), err)));
+            return;
+        }
+    }
+
+    // 2. Put the new files in place; on any failure, go back to the previous version
+    for (Replacement const& r : replacements)
+    {
+        fs::path source = staging / r.target.filename();
+
+        if (r.target == exe) { source = staging / "Brizna.exe"; }
+
+        if (!MoveFileExW(source.c_str(), r.target.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_COPY_ALLOWED))
+        {
+            DWORD err = GetLastError();
+            restore(replacements.size());
+            ShowError(fmt::format(i18n("update_failed_s"), fmt::format(L"move {} ({})", r.target.filename().wstring(), err)));
             return;
         }
     }
@@ -499,6 +645,7 @@ void UpdateChecker::Install(fs::path const& staging)
 
     if (!CreateProcessW(exe.c_str(), commandLine.data(), nullptr, nullptr, FALSE, 0, nullptr, dir.c_str(), &si, &pi))
     {
+        // The new version is in place; it will run the next time Brizna is opened
         ShowError(fmt::format(i18n("update_failed_s"), fmt::format(L"start ({})", GetLastError())));
         return;
     }

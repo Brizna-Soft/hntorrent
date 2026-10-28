@@ -21,9 +21,11 @@
 using json = nlohmann::json;
 using pt::Application;
 
+static const char* SingleInstanceName = "eb50e8eb-2263-44f0-894b-b56aaa9c6c54";
+
 Application::Application()
     : wxApp(),
-    m_singleInstance(std::make_unique<wxSingleInstanceChecker>("eb50e8eb-2263-44f0-894b-b56aaa9c6c54"))
+    m_singleInstance(std::make_unique<wxSingleInstanceChecker>(SingleInstanceName))
 {
     SetProcessDPIAware();
 }
@@ -77,6 +79,11 @@ bool Application::OnInit()
     if (m_options.pid > 0)
     {
         WaitForPreviousInstance(m_options.pid);
+
+        // The checker was created while the previous instance was still running, so it
+        // would keep reporting it (this broke the restart after an update)
+        m_singleInstance.reset();
+        m_singleInstance = std::make_unique<wxSingleInstanceChecker>(SingleInstanceName);
     }
 
     if (m_singleInstance->IsAnotherRunning())

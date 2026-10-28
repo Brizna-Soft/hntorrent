@@ -7,7 +7,9 @@
 
 #include <atomic>
 #include <filesystem>
+#include <functional>
 #include <memory>
+#include <mutex>
 #include <string>
 
 namespace pt
@@ -39,11 +41,16 @@ namespace Core
             std::string signature;
         };
 
+        // Shared with the worker threads. The UpdateChecker dies with the main frame, before
+        // wxTheApp, so a worker that sees alive == true while holding the lock can post to wxTheApp.
         struct State
         {
-            std::atomic<bool> alive{ true };
+            std::mutex lock;
+            bool alive = true;
             std::atomic<bool> busy{ false };
         };
+
+        static void PostToUi(std::shared_ptr<State> const& state, std::function<void()> fn);
 
         void Ask(Manifest const& manifest, std::string const& baseUrl);
         void Install(std::filesystem::path const& staging);

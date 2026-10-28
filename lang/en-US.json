@@ -1,6 +1,6 @@
 {
     "update_title": "Brizna update",
-    "update_available_s": "A new version of Brizna is available: {0} (you have {1}).\n\nInstall it now? Brizna will restart.",
+    "update_available_s": "A new version of Brizna is available: {0}\n\nYou have {1}. Install it now? Brizna will restart.",
     "update_install_now": "Install now",
     "update_not_now": "Not now",
     "update_up_to_date_s": "You have the latest version of Brizna ({0}).",
