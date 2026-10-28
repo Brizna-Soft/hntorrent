@@ -36,6 +36,7 @@
 #include "sessionstatistics.hpp"
 #include "torrenthandle.hpp"
 #include "torrentstatistics.hpp"
+#include "torrentstatus.hpp"
 
 namespace fs = std::filesystem;
 namespace lt = libtorrent;
@@ -474,6 +475,9 @@ void Session::RemoveMetadataSearch(std::vector<lt::info_hash_t> const& hashes)
 
 void Session::RemoveTorrent(pt::BitTorrent::TorrentHandle* torrent, lt::remove_flags_t flags)
 {
+    BOOST_LOG_TRIVIAL(info) << "Removing torrent " << torrent->Status().name << " (" << str(torrent->InfoHash()) << ")"
+        << ((flags & lt::session::delete_files) ? " and its files" : "");
+
     m_session->remove_torrent(torrent->WrappedHandle(), flags);
 }
 
@@ -973,8 +977,12 @@ void Session::LoadTorrents()
         "LEFT JOIN label lbl ON t.label_id = t.label_id\n"
         "ORDER BY t.queue_position ASC");
 
+    int count = 0;
+
     while (stmt->Read())
     {
+        count++;
+
         std::string info_hash = stmt->GetString(0);
         std::string magnet_uri = stmt->GetString(1);
         std::string save_path = stmt->GetString(3);
@@ -1023,6 +1031,8 @@ void Session::LoadTorrents()
 
         m_session->async_add_torrent(params);
     }
+
+    BOOST_LOG_TRIVIAL(info) << "Loaded " << count << " torrent(s) from the database";
 }
 
 void Session::PauseAfterRecheck(pt::BitTorrent::TorrentHandle* th)

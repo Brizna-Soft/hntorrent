@@ -1,5 +1,7 @@
 #include "torrentlistview.hpp"
 
+#include <fmt/format.h>
+#include <fmt/xchar.h>
 #include <wx/persist.h>
 
 #include "../bittorrent/torrenthandle.hpp"
@@ -223,6 +225,15 @@ TorrentListView::TorrentListView(wxWindow* parent, wxWindowID id, pt::UI::Models
             this->GetSelections(items);
 
             if (items.IsEmpty()) { return; }
+
+            // A stray key press must not remove torrents silently, so ask like the toolbar does
+            if (wxMessageBox(
+                fmt::format(i18n("confirm_remove_from_list_s"), items.size()),
+                i18n("confirm_remove"),
+                wxYES_NO | wxNO_DEFAULT | wxICON_QUESTION,
+                m_parent) != wxYES) {
+                return;
+            }
 
             for (wxDataViewItem& item : items)
             {
