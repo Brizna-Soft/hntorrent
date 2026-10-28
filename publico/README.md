@@ -30,8 +30,9 @@ Para eso cada versión trae también `Brizna-<versión>-x64.zip`, que es el mism
 
 ## Donar
 
-HNTorrent es y seguirá siendo gratis, sin publicidad ni cobros. Pronto se podrá apoyar con una
-donación por PayPal; el enlace estará aquí.
+HNTorrent es y seguirá siendo gratis, sin publicidad ni cobros. Si te sirve y quieres apoyarlo,
+puedes donar por PayPal: **[paypal.me/BriznaSoft](https://paypal.me/BriznaSoft)**.
+Cualquier monto ayuda. Gracias.
 
 ## Licencias
 
