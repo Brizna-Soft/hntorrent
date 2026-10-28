@@ -1,4 +1,4 @@
-# Este archivo vive en el repositorio público Brizna-Soft/brizna-descargas (se copia desde
+# Este archivo vive en el repositorio público Brizna-Soft/hntorrent-descargas (se copia desde
 # publico/ del repositorio privado en cada publicación). Cuando llega una versión nueva,
 # comprueba sus firmas y la publica como Release, que es de donde la baja el actualizador de HNTorrent.
 name: Publicar versión

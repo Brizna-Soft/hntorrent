@@ -15,7 +15,7 @@ namespace
 {
     // Donations will go through PayPal once the account exists. Until then the link opens the
     // "Donar" section of the downloads page, which is where the PayPal link will appear.
-    const char* DonateUrl = "https://github.com/Brizna-Soft/brizna-descargas#donar";
+    const char* DonateUrl = "https://github.com/Brizna-Soft/hntorrent-descargas#donar";
 
     wxBitmapBundle Heart(wxColour const& colour)
     {

@@ -2,8 +2,9 @@
 # Si hay algo nuevo: lo aplica, sube el número de versión (version.txt), compila, firma, guarda el cambio
 # en la rama version-propia y publica la versión:
 #   - como Release en este repositorio privado, y
-#   - en el repositorio público Brizna-Soft/brizna-descargas, de donde la baja el actualizador de HNTorrent
-#     (y el de Brizna 0.26, el nombre de antes, que así pasa solo a HNTorrent; ver empaquetar.ps1).
+#   - en el repositorio público Brizna-Soft/hntorrent-descargas, de donde la baja el actualizador de HNTorrent
+#     (y el de Brizna 0.26, el nombre de antes, que así pasa solo a HNTorrent; ver empaquetar.ps1). Ese
+#     repositorio se llamaba brizna-descargas: GitHub lleva las direcciones viejas a la nueva.
 # Si no hay nada nuevo, termina en un par de minutos.
 # A mano (pestaña Actions > Revisar actualizaciones > Run workflow) se puede marcar "forzar" para
 # publicar una versión nueva aunque no haya cambiado ninguna biblioteca (por ejemplo, tras un cambio de código).
@@ -31,7 +32,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  REPO_DESCARGAS: Brizna-Soft/brizna-descargas
+  REPO_DESCARGAS: Brizna-Soft/hntorrent-descargas
 
 jobs:
   revisar:

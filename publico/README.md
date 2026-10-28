@@ -8,7 +8,7 @@ Este repositorio solo tiene las **descargas** de HNTorrent.
 
 ## Descargar
 
-1. En [Releases](https://github.com/Brizna-Soft/brizna-descargas/releases/latest) baja `HNTorrent-<versión>-x64.zip`.
+1. En [Releases](https://github.com/Brizna-Soft/hntorrent-descargas/releases/latest) baja `HNTorrent-<versión>-x64.zip`.
 2. Descomprímelo en una carpeta propia y abre `HNTorrent.exe`. No hace falta instalarlo:
    guarda sus ajustes y su lista de torrents en esa misma carpeta.
 

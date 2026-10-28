@@ -1,5 +1,8 @@
 ﻿{
     "update_restore_failed_s": "No se pudo actualizar HNTorrent ({0}) y tampoco se pudo volver del todo a la versión anterior. Los archivos anteriores están junto a HNTorrent.exe con la terminación .anterior: quítale esa terminación para recuperarlos.",
+    "theme": "Tema",
+    "light_theme": "Claro",
+    "follow_system_theme": "Como Windows",
     "confirm_remove_yes": "Quitar de la lista",
     "confirm_remove_files_yes": "Quitar y borrar los archivos",
     "confirm_remove_no": "Cancelar",
