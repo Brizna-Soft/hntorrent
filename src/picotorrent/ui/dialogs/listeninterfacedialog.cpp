@@ -2,9 +2,17 @@
 
 #include <sstream>
 
+#ifdef _WIN32
 #include <WinSock2.h>
 #include <WS2tcpip.h>
 #include <iphlpapi.h>
+#else
+#include <arpa/inet.h>
+#include <ifaddrs.h>
+#include <net/if.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
+#endif
 
 #include <wx/hyperlink.h>
 #include <wx/statbmp.h>
@@ -131,6 +139,65 @@ void ListenInterfaceDialog::LoadAdapters()
         m_adapters->GetCount(),
         new ClientData<NetworkAdapter>(any6));
 
+#ifndef _WIN32
+    // macOS: the addresses of the interfaces that are up (en0, en1...), without the loopback
+    ifaddrs* interfaces = nullptr;
+
+    if (getifaddrs(&interfaces) != 0)
+    {
+        return;
+    }
+
+    for (ifaddrs* ifa = interfaces; ifa != nullptr; ifa = ifa->ifa_next)
+    {
+        if (ifa->ifa_addr == nullptr
+            || (ifa->ifa_flags & IFF_LOOPBACK)
+            || !(ifa->ifa_flags & IFF_UP))
+        {
+            continue;
+        }
+
+        switch (ifa->ifa_addr->sa_family)
+        {
+        case AF_INET:
+        {
+            char addrbuf[INET_ADDRSTRLEN] = {};
+            sockaddr_in* si = reinterpret_cast<sockaddr_in*>(ifa->ifa_addr);
+            inet_ntop(AF_INET, &(si->sin_addr), addrbuf, sizeof(addrbuf));
+
+            NetworkAdapter ipv4;
+            ipv4.address = addrbuf;
+            ipv4.name = std::string(addrbuf) + " (" + ifa->ifa_name + ")";
+
+            m_adapters->Insert(
+                ipv4.name,
+                m_adapters->GetCount(),
+                new ClientData<NetworkAdapter>(ipv4));
+
+            break;
+        }
+        case AF_INET6:
+        {
+            char addrbuf[INET6_ADDRSTRLEN] = {};
+            sockaddr_in6* si = reinterpret_cast<sockaddr_in6*>(ifa->ifa_addr);
+            inet_ntop(AF_INET6, &(si->sin6_addr), addrbuf, sizeof(addrbuf));
+
+            NetworkAdapter ipv6;
+            ipv6.address = "[" + std::string(addrbuf) + "]";
+            ipv6.name = ipv6.address + " (" + ifa->ifa_name + ")";
+
+            m_adapters->Insert(
+                ipv6.name,
+                m_adapters->GetCount(),
+                new ClientData<NetworkAdapter>(ipv6));
+
+            break;
+        }
+        }
+    }
+
+    freeifaddrs(interfaces);
+#else
     static constexpr int MAX_GETADAPTERSADDRESSES_TRIES = 10;
     static constexpr int INITIAL_BUFFER_SIZE = 15000;
 
@@ -214,4 +281,5 @@ void ListenInterfaceDialog::LoadAdapters()
             }
         }
     }
+#endif
 }

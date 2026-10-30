@@ -1,8 +1,16 @@
 #include "environment.hpp"
 
+#ifdef _WIN32
 #include <Windows.h>
 #include <ShlObj.h>
 #include <Shlwapi.h>
+#else
+#include <ctime>
+
+#include <wx/filename.h>
+#include <wx/stdpaths.h>
+#include <wx/uilocale.h>
+#endif
 
 #pragma warning(push)
 #pragma warning(disable: 4244)
@@ -62,6 +70,10 @@ std::string Environment::MigrateFromBrizna()
     std::string result;
     std::error_code ec;
 
+#ifndef _WIN32
+    // Brizna was only published for Windows: on macOS there is nothing to move
+    return result;
+#else
     auto note = [&result](std::string const& text)
     {
         result += (result.empty() ? "" : "; ") + text;
@@ -121,34 +133,75 @@ std::string Environment::MigrateFromBrizna()
     }
 
     return result;
+#endif
 }
 
 fs::path Environment::GetApplicationDataPath()
 {
+#ifndef _WIN32
+    // macOS: the program is an app bundle, which must not change (and runs from a read-only
+    // place until it is moved out of the download), so the data goes in the folder of the user:
+    // ~/Library/Application Support/HNTorrent
+    fs::path dir = GetKnownFolderPath(KnownFolder::LocalAppData) / "HNTorrent";
+    std::error_code ec;
+    fs::create_directories(dir, ec);
+    return dir;
+#else
     if (IsInstalled() || IsAppContainerProcess())
     {
         return fs::path(GetKnownFolderPath(KnownFolder::LocalAppData)) / "HNTorrent";
     }
 
     return GetApplicationPath();
+#endif
 }
 
 fs::path Environment::GetApplicationPath()
 {
+#ifndef _WIN32
+    // HNTorrent.app/Contents/MacOS
+    return fs::path(wxStandardPaths::Get().GetExecutablePath().utf8_string()).parent_path();
+#else
     TCHAR path[MAX_PATH];
     GetModuleFileName(NULL, path, ARRAYSIZE(path));
     PathRemoveFileSpec(path);
 
     return path;
+#endif
 }
 
 fs::path Environment::GetCoreDbFilePath()
 {
+#ifndef _WIN32
+    // HNTorrent.app/Contents/Resources, where the build puts it
+    return fs::path(wxStandardPaths::Get().GetResourcesDir().utf8_string()) / "coredb.sqlite";
+#else
     return GetApplicationPath() / "coredb.sqlite";
+#endif
 }
 
 std::string Environment::GetCurrentLocale()
 {
+#ifndef _WIN32
+    // macOS: the first preferred language in System Settings, for example "es-419" or "es-HN"
+    // (the translator takes the closest one it has)
+    auto preferred = wxUILocale::GetPreferredUILanguages();
+
+    if (!preferred.empty() && !preferred[0].empty())
+    {
+        return preferred[0].utf8_string();
+    }
+
+    wxString tag = wxUILocale::GetSystemLocaleId().GetTag(wxLOCALE_TAGTYPE_BCP47);
+
+    if (tag.empty())
+    {
+        BOOST_LOG_TRIVIAL(error) << "Failed to get current locale - defaulting to 'en'";
+        return "en";
+    }
+
+    return tag.utf8_string();
+#else
     TCHAR loc[512];
     int res = GetUserDefaultLocaleName(loc, 512);
 
@@ -160,6 +213,7 @@ std::string Environment::GetCurrentLocale()
 
     return Utils::toStdString(
         std::wstring(loc, res));
+#endif
 }
 
 fs::path Environment::GetDatabaseFilePath()
@@ -179,6 +233,20 @@ fs::path Environment::GetDatabaseFilePath()
 
 fs::path Environment::GetKnownFolderPath(Environment::KnownFolder knownFolder)
 {
+#ifndef _WIN32
+    switch (knownFolder)
+    {
+    case KnownFolder::LocalAppData:
+        return fs::path(wxFileName::GetHomeDir().utf8_string()) / "Library" / "Application Support";
+
+    case KnownFolder::UserDownloads:
+        return fs::path(wxStandardPaths::Get().GetUserDir(wxStandardPaths::Dir_Downloads).utf8_string());
+
+    default:
+        BOOST_LOG_TRIVIAL(fatal) << "Unknown KnownFolder specified: " << static_cast<int>(knownFolder);
+        throw std::runtime_error("Unknown folder");
+    }
+#else
     KNOWNFOLDERID fid = { 0 };
 
     switch (knownFolder)
@@ -209,17 +277,26 @@ fs::path Environment::GetKnownFolderPath(Environment::KnownFolder knownFolder)
     BOOST_LOG_TRIVIAL(fatal) << "Failed to get KnownFolder: " << static_cast<int>(knownFolder);
 
     throw std::runtime_error("Could not get known folder path");
+#endif
 }
 
 fs::path Environment::GetLogFilePath()
 {
     std::time_t tim = std::chrono::system_clock::to_time_t(m_startupTime);
     tm t;
+#ifdef _WIN32
     localtime_s(&t, &tim);
+#else
+    localtime_r(&tim, &t);
+#endif
 
     char frmt[100] = { 0 };
     snprintf(frmt,
+#ifdef _WIN32
         ARRAYSIZE(frmt),
+#else
+        sizeof(frmt),
+#endif
         "HNTorrent.%d%02d%02d%02d%02d%02d.log",
         t.tm_year + 1900,
         t.tm_mon + 1,
@@ -233,6 +310,10 @@ fs::path Environment::GetLogFilePath()
 
 bool Environment::IsAppContainerProcess()
 {
+#ifndef _WIN32
+    // An MSIX package: Windows only
+    return false;
+#else
     TCHAR path[MAX_PATH];
     GetModuleFileName(NULL, path, ARRAYSIZE(path));
     PathRemoveFileSpec(path);
@@ -240,10 +321,15 @@ bool Environment::IsAppContainerProcess()
     DWORD dwAttr = GetFileAttributes(path);
 
     return (dwAttr != INVALID_FILE_ATTRIBUTES && !(dwAttr & FILE_ATTRIBUTE_DIRECTORY));
+#endif
 }
 
 bool Environment::IsInstalled()
 {
+#ifndef _WIN32
+    // The installer (and its registry key) is Windows only
+    return false;
+#else
     HKEY hKey = NULL;
 
     LSTATUS lStatus = RegOpenKeyEx(
@@ -291,4 +377,5 @@ bool Environment::IsInstalled()
     if (hKey != NULL) { RegCloseKey(hKey); }
 
     return false;
+#endif
 }

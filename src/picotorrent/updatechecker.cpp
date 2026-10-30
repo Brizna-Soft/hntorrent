@@ -8,8 +8,10 @@
 #include <thread>
 #include <vector>
 
+#ifdef _WIN32
 #include <Windows.h>
 #include <winhttp.h>
+#endif
 
 #include <boost/log/trivial.hpp>
 #include <fmt/format.h>
@@ -31,6 +33,7 @@ namespace fs = std::filesystem;
 using json = nlohmann::json;
 using pt::UpdateChecker;
 
+#ifdef _WIN32
 namespace
 {
     // Public half of the key that signs every release. The private half is the
@@ -695,3 +698,27 @@ void UpdateChecker::ShowError(std::wstring const& message)
 {
     wxMessageBox(message, i18n("update_title"), wxOK | wxICON_ERROR, m_frame);
 }
+#else
+// The test version for macOS does not update itself: the releases only have the Windows
+// package, and the updater replaces HNTorrent.exe. Checking does nothing and the Help menu
+// has no "Check for updates" there.
+UpdateChecker::UpdateChecker(wxFrame* frame, std::shared_ptr<pt::Core::Configuration> cfg, std::shared_ptr<pt::Core::Environment> env)
+    : m_frame(frame),
+    m_cfg(cfg),
+    m_env(env),
+    m_state(std::make_shared<State>())
+{
+}
+
+UpdateChecker::~UpdateChecker()
+{
+}
+
+void UpdateChecker::CleanUp(fs::path const&)
+{
+}
+
+void UpdateChecker::Check(bool)
+{
+}
+#endif

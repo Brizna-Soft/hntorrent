@@ -23,6 +23,12 @@ namespace IPC
 
         virtual wxConnectionBase* OnAcceptConnection(const wxString& topic) wxOVERRIDE;
 
+#ifndef __WXMSW__
+        // Outside Windows (where the server is the DDE service "HNTorrent") it listens on this
+        // Unix socket, in the temporary folder of the user
+        static wxString SocketPath();
+#endif
+
     private:
         UI::MainFrame* m_frame;
     };

@@ -20,14 +20,23 @@
 #include "../../buildinfo.hpp"
 #include "../translator.hpp"
 
+#ifndef __WXMSW__
+#include "../macicons.hpp"
+#endif
+
 using json = nlohmann::json;
 using pt::UI::Dialogs::AboutDialog;
 
 AboutDialog::AboutDialog(wxWindow* parent, wxWindowID id)
     : wxDialog(parent, id, i18n("about_picotorrent"), wxDefaultPosition, wxDefaultSize, wxDEFAULT_DIALOG_STYLE | wxRESIZE_BORDER)
 {
+#ifdef __WXMSW__
     wxIcon icon(L"AppIcon", wxBITMAP_TYPE_ICO_RESOURCE, 128, 128);
     auto bmp = new wxStaticBitmap(this, wxID_ANY, icon);
+#else
+    // The logo, drawn from its SVG (app.ico is a Windows resource)
+    auto bmp = new wxStaticBitmap(this, wxID_ANY, wxBitmapBundle::FromSVG(MacIcons::AppLogo, wxSize(128, 128)));
+#endif
 
     auto lv = new wxListView(this);
     lv->AppendColumn(i18n("component"), wxLIST_FORMAT_LEFT, FromDIP(200));
@@ -88,9 +97,14 @@ AboutDialog::AboutDialog(wxWindow* parent, wxWindowID id)
     desc->AppendText("\n");
     desc->AppendText(i18n("made_with_ai_help"));
 
+#ifdef __WXMSW__
     // The third-party licenses file sits next to the executable
     wxFileName notices(wxStandardPaths::Get().GetExecutablePath());
     notices.SetFullName("AVISOS-DE-TERCEROS.txt");
+#else
+    // On macOS it is in HNTorrent.app/Contents/Resources
+    wxFileName notices(wxStandardPaths::Get().GetResourcesDir(), "AVISOS-DE-TERCEROS.txt");
+#endif
 
     auto noticesLink = new wxHyperlinkCtrl(this, wxID_ANY, i18n("third_party_notices"), notices.GetFullPath());
     noticesLink->Bind(wxEVT_HYPERLINK, [](wxHyperlinkEvent& evt) { wxLaunchDefaultApplication(evt.GetURL()); });

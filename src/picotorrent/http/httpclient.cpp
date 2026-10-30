@@ -1,3 +1,5 @@
+// WinHTTP client for the plugin API (api/libpico.cpp), which only exists on Windows
+#ifdef _WIN32
 #include "httpclient.hpp"
 
 #include <sstream>
@@ -170,3 +172,4 @@ void HttpClient::StatusCallbackProxy(HINTERNET, DWORD_PTR dwContext, DWORD dwInt
     }
     }
 }
+#endif

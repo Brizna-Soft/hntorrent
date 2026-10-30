@@ -1,0 +1,228 @@
+# Versión de PRUEBA de HNTorrent para Mac, sin la firma de Apple.
+# La compilan las Mac de GitHub, una con Apple Silicon (arm64) y otra con Intel (x86_64), cada vez que se sube
+# un cambio a la rama mac-prueba (o a mano: pestaña Actions > Mac (prueba) > Run workflow).
+# Deja como "artefactos" de la ejecución, durante 14 días (no publica nada: ni Release ni etiquetas):
+#   - HNTorrent-mac-arm64 y HNTorrent-mac-x86_64: el HNTorrent.app comprimido con ditto
+#   - captura-mac-arm64 y captura-mac-x86_64: una captura del programa abierto en la Mac de GitHub
+name: Mac (prueba)
+
+on:
+  push:
+    branches: [mac-prueba]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mac-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  compilar:
+    name: HNTorrent para Mac (${{ matrix.arquitectura }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Etiquetas de las Mac de GitHub revisadas en su documentación el 28/10/2026: macos-15 es Apple
+          # Silicon (M1) y macos-15-intel es Intel. Las dos traen macOS 15, Xcode 16.4, CMake 4 y Ninja.
+          - arquitectura: arm64
+            maquina: macos-15
+            triplet: arm64-osx
+          - arquitectura: x86_64
+            maquina: macos-15-intel
+            triplet: x64-osx
+    runs-on: ${{ matrix.maquina }}
+    timeout-minutes: 180
+    env:
+      VCPKG_DISABLE_METRICS: '1'
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: recursive
+
+      - name: Carpetas de caché de vcpkg
+        run: |
+          echo "VCPKG_DEFAULT_BINARY_CACHE=$RUNNER_TEMP/vcpkg-binarios" >> "$GITHUB_ENV"
+          echo "VCPKG_DOWNLOADS=$RUNNER_TEMP/vcpkg-descargas" >> "$GITHUB_ENV"
+          mkdir -p "$RUNNER_TEMP/vcpkg-binarios" "$RUNNER_TEMP/vcpkg-descargas"
+
+      - name: Recuperar bibliotecas ya compiladas
+        uses: actions/cache/restore@v6
+        with:
+          path: ${{ env.VCPKG_DEFAULT_BINARY_CACHE }}
+          key: vcpkg-mac-${{ matrix.triplet }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: vcpkg-mac-${{ matrix.triplet }}-
+
+      - name: Contar bibliotecas guardadas
+        id: antes
+        run: echo "n=$(find "$VCPKG_DEFAULT_BINARY_CACHE" -type f | wc -l | tr -d ' ')" >> "$GITHUB_OUTPUT"
+
+      # Aquí vcpkg baja y compila Boost, OpenSSL, libtorrent y lo demás (la primera vez tarda)
+      - name: Configurar
+        id: configurar
+        run: |
+          version=$(head -n 1 version.txt | tr -d '\r\n ')
+          sha=$(git rev-parse --short=7 HEAD)
+          IFS=. read -r mayor menor parche <<< "$version"
+          semver="$version-mac-prueba+$sha"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "semver=$semver" >> "$GITHUB_OUTPUT"
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0 \
+            -DCMAKE_OSX_ARCHITECTURES=${{ matrix.arquitectura }} \
+            -DVCPKG_TARGET_TRIPLET=${{ matrix.triplet }} \
+            "-DVCPKG_INSTALL_OPTIONS=--clean-buildtrees-after-build;--clean-packages-after-build" \
+            -DGITVERSION_VAR_BRANCHNAME=mac-prueba \
+            "-DGITVERSION_VAR_SEMVER=$semver" \
+            "-DGITVERSION_VAR_SHORTSHA=$sha" \
+            "-DGITVERSION_VAR_VERSION_MAJOR=$mayor" \
+            "-DGITVERSION_VAR_VERSION_MINOR=$menor" \
+            "-DGITVERSION_VAR_VERSION_PATCH=$parche" \
+            "-DGITVERSION_VAR_VERSION=$version"
+
+      - name: Registros de vcpkg (solo si falló)
+        if: failure()
+        run: |
+          find vendor/vcpkg/buildtrees -maxdepth 2 -name '*.log' 2>/dev/null | while read -r f; do
+            echo "::group::$f"; tail -n 80 "$f"; echo "::endgroup::"
+          done
+
+      - name: Ver si vcpkg compiló bibliotecas nuevas
+        id: despues
+        if: always()
+        env:
+          ANTES: ${{ steps.antes.outputs.n }}
+        run: |
+          n=$(find "$VCPKG_DEFAULT_BINARY_CACHE" -type f | wc -l | tr -d ' ')
+          if [ "$n" -gt "${ANTES:-0}" ]; then echo "nuevas=si" >> "$GITHUB_OUTPUT"; else echo "nuevas=no" >> "$GITHUB_OUTPUT"; fi
+
+      # Solo se guarda la caché si cambió, para no gastar espacio; también si la configuración falló a medias
+      - name: Guardar bibliotecas compiladas
+        if: always() && steps.despues.outputs.nuevas == 'si'
+        uses: actions/cache/save@v6
+        with:
+          path: ${{ env.VCPKG_DEFAULT_BINARY_CACHE }}
+          key: vcpkg-mac-${{ matrix.triplet }}-${{ github.run_id }}-${{ github.run_attempt }}
+
+      # -k 0: si algo no compila, sigue con lo demás para ver todos los errores de una vez
+      - name: Compilar
+        run: cmake --build build --target PicoTorrent --parallel -- -k 0
+
+      - name: Revisar el programa
+        run: |
+          app=build/HNTorrent.app
+          ls -la "$app/Contents" "$app/Contents/MacOS" "$app/Contents/Resources"
+          plutil -lint "$app/Contents/Info.plist"
+          plutil -p "$app/Contents/Info.plist"
+          lipo -archs "$app/Contents/MacOS/HNTorrent"
+          otool -l "$app/Contents/MacOS/HNTorrent" | grep -A4 LC_BUILD_VERSION
+          otool -L "$app/Contents/MacOS/HNTorrent"
+          # Solo puede usar bibliotecas que trae macOS (nada de Homebrew ni de la carpeta de compilación)
+          if otool -L "$app/Contents/MacOS/HNTorrent" | tail -n +2 | grep -v -E '^[[:space:]]+(/usr/lib/|/System/Library/)'; then
+            echo "::error::El programa usa bibliotecas que no vienen con macOS"
+            exit 1
+          fi
+
+      - name: Avisos de licencias de terceros
+        shell: pwsh
+        run: ./generar-avisos.ps1 -Build "$PWD/build" -Triplet '${{ matrix.triplet }}' -Salida "$PWD/build/HNTorrent.app/Contents/Resources/AVISOS-DE-TERCEROS.txt" -Version '${{ steps.configurar.outputs.semver }}'
+
+      # Firma "ad hoc": no es la firma de Apple (esta prueba no la tiene). Apple Silicon la pide para abrir
+      # cualquier programa, y con ella macOS ofrece "Abrir igualmente" en vez de decir que la app está dañada.
+      - name: Firmar en local y comprimir
+        run: |
+          app=build/HNTorrent.app
+          codesign --force --deep --sign - "$app"
+          codesign --verify --deep --strict --verbose=2 "$app"
+          codesign -dv "$app"
+          mkdir -p "$RUNNER_TEMP/paquete"
+          ditto -c -k --keepParent "$app" "$RUNNER_TEMP/paquete/HNTorrent-${{ steps.configurar.outputs.version }}-mac-${{ matrix.arquitectura }}.zip"
+          ls -la "$RUNNER_TEMP/paquete"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: HNTorrent-mac-${{ matrix.arquitectura }}
+          path: ${{ runner.temp }}/paquete/*.zip
+          retention-days: 14
+
+      # Abre la app recién descomprimida (como la abriría el dueño), espera y fotografía solo su ventana.
+      # La Mac de GitHub se pone en español, como la del dueño. Si no aparece la ventana, va la pantalla
+      # completa de la Mac de GitHub (que no es la pantalla de nadie).
+      - name: Abrir el programa y sacar una captura
+        id: captura
+        run: |
+          prueba="$RUNNER_TEMP/probar"
+          fotos="$RUNNER_TEMP/captura"
+          mkdir -p "$prueba" "$fotos"
+          ditto -x -k "$RUNNER_TEMP/paquete/HNTorrent-${{ steps.configurar.outputs.version }}-mac-${{ matrix.arquitectura }}.zip" "$prueba"
+
+          defaults write -g AppleLanguages -array es-HN es
+          defaults write -g AppleLocale es_HN
+
+          cat > "$RUNNER_TEMP/ventana.swift" <<'SWIFT'
+          import CoreGraphics
+          import Foundation
+
+          // Prints the number of the biggest normal window of the program, and lists them all
+          let owner = CommandLine.arguments.count > 1 ? CommandLine.arguments[1] : "HNTorrent"
+          let options: CGWindowListOption = [.optionOnScreenOnly, .excludeDesktopElements]
+          let windows = (CGWindowListCopyWindowInfo(options, kCGNullWindowID) as? [[String: Any]]) ?? []
+          var best = 0
+          var bestArea = 0.0
+          for w in windows {
+              guard (w[kCGWindowOwnerName as String] as? String) == owner else { continue }
+              let layer = (w[kCGWindowLayer as String] as? NSNumber)?.intValue ?? -1
+              let number = (w[kCGWindowNumber as String] as? NSNumber)?.intValue ?? 0
+              let bounds = w[kCGWindowBounds as String] as? [String: Any] ?? [:]
+              let width = (bounds["Width"] as? NSNumber)?.doubleValue ?? 0
+              let height = (bounds["Height"] as? NSNumber)?.doubleValue ?? 0
+              let name = w[kCGWindowName as String] as? String ?? ""
+              FileHandle.standardError.write("ventana \(number): capa \(layer), \(Int(width))x\(Int(height)) \(name)\n".data(using: .utf8)!)
+              if layer == 0 && width * height > bestArea {
+                  best = number
+                  bestArea = width * height
+              }
+          }
+          if best != 0 { print(best) }
+          SWIFT
+          swiftc -O -o "$RUNNER_TEMP/ventana" "$RUNNER_TEMP/ventana.swift"
+
+          open -n "$prueba/HNTorrent.app"
+          sleep 15
+
+          if pgrep -x HNTorrent > /dev/null; then echo "HNTorrent está abierto"; else echo "::warning::HNTorrent no está abierto"; fi
+          id=$("$RUNNER_TEMP/ventana" HNTorrent || true)
+
+          if [ -n "$id" ] && screencapture -x -o -l"$id" "$fotos/HNTorrent-mac-${{ matrix.arquitectura }}.png"; then
+            echo "Captura de la ventana $id"
+          else
+            echo "::warning::No encontré la ventana de HNTorrent: va la pantalla completa de la Mac de GitHub"
+            screencapture -x "$fotos/pantalla-mac-${{ matrix.arquitectura }}.png"
+          fi
+          ls -la "$fotos"
+
+          osascript -e 'tell application id "io.github.brizna-soft.hntorrent" to quit' || true
+          for i in $(seq 1 30); do pgrep -x HNTorrent > /dev/null || break; sleep 1; done
+          pkill -x HNTorrent || true
+
+      - name: Registros del programa
+        if: always() && steps.captura.outcome != 'skipped'
+        run: |
+          for f in "$HOME/Library/Application Support/HNTorrent/logs/"*.log; do
+            [ -f "$f" ] && { echo "::group::$f"; cat "$f"; echo "::endgroup::"; }
+          done
+          for f in "$HOME/Library/Logs/DiagnosticReports/"HNTorrent*; do
+            [ -f "$f" ] && { echo "::group::$f"; head -n 150 "$f"; echo "::endgroup::"; }
+          done
+          true
+
+      - uses: actions/upload-artifact@v7
+        if: always() && steps.captura.outcome != 'skipped'
+        with:
+          name: captura-mac-${{ matrix.arquitectura }}
+          path: ${{ runner.temp }}/captura/*.png
+          retention-days: 14
+          if-no-files-found: warn

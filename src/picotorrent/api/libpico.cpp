@@ -1,5 +1,6 @@
 #include "libpico_impl.hpp"
 
+#ifdef _WIN32
 #include <Windows.h>
 
 #include <vector>
@@ -241,3 +242,17 @@ const char* libpico_version()
 {
     return pt::BuildInfo::version();
 }
+#else
+// Plugins are Windows DLLs (LoadLibrary, GetProcAddress), so on macOS none are loaded and the
+// plugin API is not part of the program.
+using pt::API::IPlugin;
+
+IPlugin::~IPlugin()
+{
+}
+
+IPlugin* IPlugin::Load(fs::path const&, pt::Core::Environment*, pt::Core::Configuration*)
+{
+    return nullptr;
+}
+#endif

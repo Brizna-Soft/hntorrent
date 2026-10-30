@@ -2,9 +2,11 @@
 
 #include <sstream>
 
+#ifdef _WIN32
 #include <WinSock2.h>
 #include <WS2tcpip.h>
 #include <iphlpapi.h>
+#endif
 
 #include <wx/filepicker.h>
 #include <wx/listctrl.h>

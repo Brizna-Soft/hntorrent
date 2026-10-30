@@ -7,7 +7,11 @@
 #include "database.hpp"
 #include "environment.hpp"
 
+#ifdef _WIN32
 #include <Windows.h>
+#else
+#include <wx/settings.h>
+#endif
 
 namespace fs = std::filesystem;
 
@@ -219,6 +223,10 @@ void Configuration::UpsertListenInterface(Configuration::ListenInterface const& 
 
 bool Configuration::IsSystemDarkMode()
 {
+#ifndef _WIN32
+    // macOS: Light or Dark in System Settings > Appearance
+    return wxSystemSettings::GetAppearance().IsDark();
+#else
     bool systemUsesDarkTheme = false;
     HKEY hKey = 0;
     DWORD dwValue = 1;
@@ -233,6 +241,7 @@ bool Configuration::IsSystemDarkMode()
         systemUsesDarkTheme = true;
     }
     return systemUsesDarkTheme;
+#endif
 }
 
 bool Configuration::IsDarkMode()

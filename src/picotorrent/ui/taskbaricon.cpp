@@ -3,13 +3,32 @@
 #include "ids.hpp"
 #include "translator.hpp"
 
+#ifndef __WXMSW__
+#include <wx/notifmsg.h>
+
+#include "macicons.hpp"
+#endif
+
 using pt::UI::TaskBarIcon;
 
 TaskBarIcon::TaskBarIcon(wxWindow* parent)
     : m_parent(parent),
+#ifdef __WXMSW__
     m_icon(wxIcon(wxICON(AppIcon)))
+#else
+    // The logo in the menu bar of macOS, at the size of its icons
+    m_icon(wxBitmapBundle::FromSVG(MacIcons::AppLogo, wxSize(18, 18)))
+#endif
 {
 }
+
+#ifndef __WXMSW__
+bool TaskBarIcon::ShowBalloon(const wxString& title, const wxString& text)
+{
+    wxNotificationMessage notification(title, text, m_parent);
+    return notification.Show();
+}
+#endif
 
 void TaskBarIcon::Hide()
 {

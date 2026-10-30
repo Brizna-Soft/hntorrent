@@ -8,6 +8,7 @@
 #define LIBPICO_STRINGIFY(x) #x
 #define LIBPICO_TOSTRING(x) LIBPICO_STRINGIFY(x)
 
+#if defined(_WIN32)
 #define LIBPICO_DEFINE_PLUGIN(name,version,init_func) \
     extern "C" __declspec(dllexport) libpico_result_t LIBPICO_INIT(int v, libpico_plugin_t* a) \
     { \
@@ -20,6 +21,17 @@
 #else
 #define LIBPICO_API_FUNCTION \
     extern "C" __declspec(dllimport)
+#endif
+#else
+// Other systems (macOS) have no __declspec: plain C functions, visible from outside
+#define LIBPICO_DEFINE_PLUGIN(name,version,init_func) \
+    extern "C" __attribute__((visibility("default"))) libpico_result_t LIBPICO_INIT(int v, libpico_plugin_t* a) \
+    { \
+        return init_func(v,a); \
+    }
+
+#define LIBPICO_API_FUNCTION \
+    extern "C" __attribute__((visibility("default")))
 #endif
 
 typedef struct libpico_config_t libpico_config_t;

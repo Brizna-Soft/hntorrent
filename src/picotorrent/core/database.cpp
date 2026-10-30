@@ -1,8 +1,14 @@
 #include "database.hpp"
 
+#ifdef _WIN32
 #include <Windows.h>
 #include <ShlObj.h>
 #include <Shlwapi.h>
+#else
+#include <wx/stdpaths.h>
+
+#include "dbmigrations.hpp"
+#endif
 
 #include <filesystem>
 #include <vector>
@@ -22,6 +28,7 @@ struct Migration
     std::string sql;
 };
 
+#ifdef _WIN32
 static BOOL CALLBACK EnumMigrations(HMODULE hModule, LPCTSTR lpszType, LPTSTR lpszName, LONG_PTR lParam)
 {
     std::vector<Migration>* migrations = reinterpret_cast<std::vector<Migration>*>(lParam);
@@ -39,6 +46,7 @@ static BOOL CALLBACK EnumMigrations(HMODULE hModule, LPCTSTR lpszType, LPTSTR lp
 
     return TRUE;
 }
+#endif
 
 Database::Statement::Statement(sqlite3_stmt* stmt)
     : m_stmt(stmt)
@@ -200,11 +208,25 @@ bool Database::Migrate()
 
     std::vector<Migration> migrations;
 
+#ifdef _WIN32
     EnumResourceNames(
         NULL,
         TEXT("DBMIGRATION"),
         &EnumMigrations,
         reinterpret_cast<LONG_PTR>(&migrations));
+#else
+    // Compiled into the program from res/dbmigrations (see CMakeLists.txt)
+    for (std::size_t i = 0; i < DbMigrations::Count; i++)
+    {
+        DbMigrations::Entry const& entry = DbMigrations::Entries[i];
+
+        Migration m;
+        m.name = entry.name;
+        m.sql  = std::string(reinterpret_cast<const char*>(entry.sql), entry.size);
+
+        migrations.push_back(m);
+    }
+#endif
 
     BOOST_LOG_TRIVIAL(info) << "Found " << migrations.size() << " migrations";
 
@@ -280,6 +302,14 @@ void Database::GetKnownFolderPath(sqlite3_context* ctx, int argc, sqlite3_value*
     if (argc > 0)
     {
         std::string folderId((const char*)sqlite3_value_text(argv[0]));
+#ifndef _WIN32
+        // macOS: the Downloads folder of the user
+        if (folderId == "FOLDERID_Downloads")
+        {
+            std::string res = wxStandardPaths::Get().GetUserDir(wxStandardPaths::Dir_Downloads).utf8_string();
+            sqlite3_result_text(ctx, res.c_str(), -1, SQLITE_TRANSIENT);
+        }
+#else
         KNOWNFOLDERID fid = { 0 };
 
         if (folderId == "FOLDERID_Downloads")
@@ -299,12 +329,19 @@ void Database::GetKnownFolderPath(sqlite3_context* ctx, int argc, sqlite3_value*
             std::string res = Utils::toStdString(result);
             sqlite3_result_text(ctx, res.c_str(), -1, SQLITE_TRANSIENT);
         }
+#endif
     }
 }
 
 void Database::GetUserDefaultUILanguage(sqlite3_context* ctx, int, sqlite3_value**)
 {
+#ifdef _WIN32
     sqlite3_result_int(ctx, static_cast<int>(::GetUserDefaultUILanguage()));
+#else
+    // A Windows language id: macOS has none. Nothing reads it any more (the language is
+    // the locale_name setting), so it stays 0.
+    sqlite3_result_int(ctx, 0);
+#endif
 }
 
 bool Database::MigrationExists(std::string const& name)

@@ -1,3 +1,5 @@
+// The Windows file dialog (IFileOpenDialog). On macOS the main window uses wxFileDialog.
+#ifdef _WIN32
 #include "openfiledialog.hpp"
 
 #define STRICT_TYPED_ITEMIDS
@@ -101,3 +103,4 @@ void OpenFileDialog::Show(wxWindow* parent)
 {
     m_wrappedDialog->Show(parent->GetHWND());
 }
+#endif

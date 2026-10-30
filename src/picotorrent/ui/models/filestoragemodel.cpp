@@ -5,7 +5,11 @@
 
 #include <boost/algorithm/string.hpp>
 #include <filesystem>
+#ifdef _WIN32
 #include <shellapi.h>
+#else
+#include <wx/artprov.h>
+#endif
 
 #include <libtorrent/file_storage.hpp>
 #include <libtorrent/torrent_info.hpp>
@@ -22,6 +26,18 @@ FileStorageModel::FileStorageModel(std::function<void(wxDataViewItemArray&, lt::
     : m_priorityChangedCallback(priorityChanged),
     m_root(std::make_shared<Node>())
 {
+#ifndef _WIN32
+    // macOS: the folder and document icons of the system (the shell icons are Windows only)
+    if (!FolderIcon.IsOk())
+    {
+        FolderIcon = wxArtProvider::GetIcon(wxART_FOLDER, wxART_OTHER, wxSize(16, 16));
+    }
+
+    if (!UnknownIcon.IsOk())
+    {
+        UnknownIcon = wxArtProvider::GetIcon(wxART_NORMAL_FILE, wxART_OTHER, wxSize(16, 16));
+    }
+#else
     if (!FolderIcon.IsOk())
     {
         SHFILEINFO shfi = { 0 };
@@ -44,6 +60,7 @@ FileStorageModel::FileStorageModel(std::function<void(wxDataViewItemArray&, lt::
             UnknownIcon.CreateFromHICON(sii.hIcon);
         }
     }
+#endif
 }
 
 void FileStorageModel::ClearNodes()
@@ -107,10 +124,18 @@ void FileStorageModel::RebuildTree(std::shared_ptr<const lt::torrent_info> ti)
         std::shared_ptr<Node> currentNode = m_root;
 
         std::vector<std::string> parts;
+#ifdef _WIN32
         boost::split(
             parts,
             files.file_path(idx),
             [](char c) { return c == '\\'; });
+#else
+        // libtorrent joins the folders with "/" outside Windows
+        boost::split(
+            parts,
+            files.file_path(idx),
+            [](char c) { return c == '/'; });
+#endif
 
         if (parts.size() > 0)
         {
@@ -146,6 +171,8 @@ void FileStorageModel::RebuildTree(std::shared_ptr<const lt::torrent_info> ti)
         currentNode->children.insert({ n->name, n });
         m_map.insert({ idx, n });
 
+#ifdef _WIN32
+        // The icon of each type of file (on macOS every file shows the document icon)
         std::size_t pos = n->name.find_last_of(".");
 
         if (pos != std::string::npos)
@@ -168,6 +195,7 @@ void FileStorageModel::RebuildTree(std::shared_ptr<const lt::torrent_info> ti)
                 m_icons.insert({ extension, icon });
             }
         }
+#endif
     }
 
     this->Cleared();

@@ -1,6 +1,8 @@
 #include "preferencesgeneralpage.hpp"
 
+#ifdef _WIN32
 #include <strsafe.h>
+#endif
 
 #include <boost/log/trivial.hpp>
 
@@ -9,6 +11,7 @@
 #include "../../core/utils.hpp"
 #include "../translator.hpp"
 
+#ifdef _WIN32
 struct AutoRunKey
 {
     AutoRunKey()
@@ -77,6 +80,7 @@ struct AutoRunKey
 private:
     HKEY m_key;
 };
+#endif
 
 using pt::Core::Configuration;
 using pt::UI::Dialogs::PreferencesGeneralPage;
@@ -111,10 +115,17 @@ PreferencesGeneralPage::PreferencesGeneralPage(wxWindow* parent, std::shared_ptr
     miscGrid->Add(0, 0);
     miscGrid->Add(m_skipAddTorrentDialog, 0, wxALIGN_CENTER_VERTICAL);
     miscGrid->Add(0, 0);
+#ifdef _WIN32
     miscGrid->Add(m_autoStart, 0, wxALIGN_CENTER_VERTICAL);
     miscGrid->Add(0, 0);
     miscGrid->Add(m_checkForUpdates, 0, wxALIGN_CENTER_VERTICAL);
     miscGrid->Add(0, 0);
+#else
+    // The test version for macOS neither starts with the system (that is the Windows
+    // registry) nor updates itself
+    m_autoStart->Hide();
+    m_checkForUpdates->Hide();
+#endif
     miscGrid->Add(new wxStaticText(miscSizer->GetStaticBox(), wxID_ANY, i18n("start_position")), 0, wxALIGN_CENTER_VERTICAL);
     miscGrid->Add(m_startPosition, 1, wxALIGN_RIGHT | wxALIGN_CENTER_VERTICAL);
     miscSizer->Add(miscGrid, 1, wxEXPAND | wxALL, FromDIP(5));
@@ -167,11 +178,13 @@ PreferencesGeneralPage::PreferencesGeneralPage(wxWindow* parent, std::shared_ptr
     m_skipAddTorrentDialog->SetValue(m_cfg->Get<bool>("skip_add_torrent_dialog").value());
     m_checkForUpdates->SetValue(m_cfg->Get<bool>("update_checks.enabled").value_or(true));
 
+#ifdef _WIN32
     AutoRunKey key;
     if (key.Exists())
     {
         m_autoStart->SetValue(true);
     }
+#endif
 
     m_startPosition->Append(i18n("normal"), new ClientData<Configuration::WindowState>(Configuration::WindowState::Normal));
     m_startPosition->Append(i18n("minimized"), new ClientData<Configuration::WindowState>(Configuration::WindowState::Minimized));
@@ -243,6 +256,7 @@ void PreferencesGeneralPage::Save(bool* restartRequired)
         m_cfg->Set("start_position", static_cast<int>(startPosData->GetValue()));
     }
 
+#ifdef _WIN32
     {
         AutoRunKey key;
 
@@ -256,6 +270,7 @@ void PreferencesGeneralPage::Save(bool* restartRequired)
             key.Create();
         }
     }
+#endif
 
     m_cfg->Set("use_label_as_list_bgcolor", m_labelColor->GetValue());
     m_cfg->Set("skip_add_torrent_dialog", m_skipAddTorrentDialog->GetValue());

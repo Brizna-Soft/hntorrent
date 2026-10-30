@@ -1,20 +1,24 @@
 ﻿# Arma AVISOS-DE-TERCEROS.txt con la licencia de cada pieza de software que va dentro de HNTorrent.exe.
 # Los textos salen de lo que instaló vcpkg (share\<paquete>\copyright) y de los submódulos (vendor\...),
 # así que siempre corresponden a las versiones compiladas. Lo llama compilar.ps1 después de compilar.
+# La versión de prueba para Mac (.github/workflows/mac.yml) lo llama con PowerShell 7 y su -Triplet.
 param(
     [string]$Build,
     [Parameter(Mandatory = $true)][string]$Salida,
-    [string]$Version = ''
+    [string]$Version = '',
+    [string]$Triplet = 'x64-windows-static-md-rel'
 )
 
 $ErrorActionPreference = 'Stop'
 $codigo = $PSScriptRoot
 if (-not $Build) { $Build = Join-Path $codigo 'build-x64' }
-$share = Join-Path $Build 'vcpkg_installed\x64-windows-static-md-rel\share'
+$share = Join-Path $Build "vcpkg_installed\$Triplet\share"
 $wx = Join-Path $codigo 'vendor\wx'
 
 function Leer([string]$ruta) {
     if (-not (Test-Path $ruta)) { throw "Falta el archivo de licencia: $ruta" }
+    # La ruta completa del sistema: en la Mac cambia las \ por /
+    $ruta = (Resolve-Path -LiteralPath $ruta).ProviderPath
     $t = [IO.File]::ReadAllText($ruta, [Text.Encoding]::UTF8)
     return ($t -replace "`r`n", "`n" -replace "`r", "`n").Trim("`n", ' ')
 }

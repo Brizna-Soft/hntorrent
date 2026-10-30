@@ -40,7 +40,9 @@ bool ApplicationOptionsConnection::OnExecute(const wxString&, const void *data, 
                 return;
             }
 
+#ifdef __WXMSW__
             m_frame->MSWGetTaskBarButton()->Show();
+#endif
 
             if (m_frame->IsIconized())
             {

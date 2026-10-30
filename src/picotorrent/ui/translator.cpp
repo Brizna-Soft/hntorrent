@@ -6,6 +6,13 @@
 
 #include "../core/utils.hpp"
 
+#ifndef _WIN32
+#include <algorithm>
+#include <cwctype>
+
+#include <wx/uilocale.h>
+#endif
+
 using json = nlohmann::json;
 using pt::UI::Translator;
 
@@ -33,7 +40,12 @@ void Translator::LoadDatabase(std::filesystem::path const& filePath)
 
     sqlite3* db = nullptr;
 
+#ifdef _WIN32
     if (sqlite3_open(convertedPath.c_str(), &db) != SQLITE_OK)
+#else
+    // It is inside the app bundle, which must stay as it was built (and signed)
+    if (sqlite3_open_v2(convertedPath.c_str(), &db, SQLITE_OPEN_READONLY, nullptr) != SQLITE_OK)
+#endif
     {
         BOOST_LOG_TRIVIAL(error) << "Failed to load translations database";
         return;
@@ -56,14 +68,26 @@ int Translator::LoadDatabaseCallback(void* user, int, char** data, char**)
     std::string loc = data[0];
     std::string key = data[1];
     std::wstring val = Utils::toStdWString(data[2]);
+#ifdef _WIN32
     TCHAR localeNameBuffer[1024];
+#endif
 
     if (tr->m_languages.find(loc) == tr->m_languages.end())
     {
         Language l;
         l.locale = loc;
 
+#ifndef _WIN32
+        // macOS: the name of each language in that language ("Español", "Deutsch"...)
+        l.name = wxUILocale::FromTag(loc).GetLocalizedName(wxLOCALE_NAME_LANGUAGE, wxLOCALE_FORM_NATIVE).ToStdWstring();
 
+        if (l.name.empty())
+        {
+            l.name = Utils::toStdWString(loc);
+        }
+
+        l.name[0] = static_cast<wchar_t>(std::towupper(static_cast<wint_t>(l.name[0])));
+#else
         int res = GetLocaleInfoEx(
             Utils::toStdWString(l.locale).c_str(),
             LOCALE_SLOCALIZEDLANGUAGENAME,
@@ -78,6 +102,7 @@ int Translator::LoadDatabaseCallback(void* user, int, char** data, char**)
         {
             BOOST_LOG_TRIVIAL(error) << "GetLocaleInfoEx returned " << res << " for " << l.locale;
         }
+#endif
 
         tr->m_languages.insert({ loc, l });
     }

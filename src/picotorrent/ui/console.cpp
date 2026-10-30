@@ -6,6 +6,10 @@
 #include "torrentlistview.hpp"
 #include "../core/configuration.hpp"
 
+#ifndef __WXMSW__
+#include "macicons.hpp"
+#endif
+
 using pt::UI::Console;
 
 wxDEFINE_EVENT(ptEVT_FILTER_CHANGED, wxCommandEvent);
@@ -18,7 +22,12 @@ Console::Console(wxWindow* parent, wxWindowID id, pt::UI::Models::TorrentListMod
     m_input->SetFont(
         wxFont(9, wxFONTFAMILY_TELETYPE, wxFONTSTYLE_NORMAL, wxFONTWEIGHT_NORMAL, false, wxT("Consolas")));
 
+#ifdef __WXMSW__
     wxIcon funnel(isDarkMode ? L"ICO_TERMINAL_DARK_THEME" : L"ICO_TERMINAL", wxBITMAP_TYPE_ICO_RESOURCE, FromDIP(16), FromDIP(16));
+#else
+    // The .ico files of resources.rc only exist on Windows
+    wxBitmapBundle funnel = wxBitmapBundle::FromSVG(isDarkMode ? MacIcons::TerminalDark : MacIcons::Terminal, wxSize(16, 16));
+#endif
 
     int i = FromDIP(16);
     printf("%d", i);

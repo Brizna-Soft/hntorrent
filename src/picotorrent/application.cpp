@@ -22,6 +22,13 @@
 #include "ui/theme.hpp"
 #include "ui/translator.hpp"
 
+#ifndef _WIN32
+#include <signal.h>
+#include <wx/filename.h>
+
+#include "ipc/server.hpp"
+#endif
+
 using json = nlohmann::json;
 using pt::Application;
 
@@ -34,6 +41,11 @@ namespace
     // from there (the data files move to the new names in Environment::Create).
     bool RestartAsHNTorrent(pt::CommandLineOptions const& options)
     {
+#ifndef _WIN32
+        // Brizna was only published for Windows
+        (void)options;
+        return false;
+#else
         std::filesystem::path exe = wxStandardPaths::Get().GetExecutablePath().ToStdWstring();
 
         if (_wcsicmp(exe.filename().c_str(), L"Brizna.exe") != 0) { return false; }
@@ -68,14 +80,23 @@ namespace
         CloseHandle(pi.hProcess);
 
         return true;
+#endif
     }
 }
 
 Application::Application()
     : wxApp(),
+#ifdef _WIN32
     m_singleInstance(std::make_unique<wxSingleInstanceChecker>(SingleInstanceName))
+#else
+    // Elsewhere the checker is a lock file, which would go in the home folder; the temporary
+    // folder of the user keeps it out of sight
+    m_singleInstance(std::make_unique<wxSingleInstanceChecker>(SingleInstanceName, wxFileName::GetTempDir()))
+#endif
 {
+#ifdef _WIN32
     SetProcessDPIAware();
+#endif
 }
 
 Application::~Application()
@@ -131,7 +152,11 @@ bool Application::OnInit()
         // The checker was created while the previous instance was still running, so it
         // would keep reporting it (this broke the restart after an update)
         m_singleInstance.reset();
+#ifdef _WIN32
         m_singleInstance = std::make_unique<wxSingleInstanceChecker>(SingleInstanceName);
+#else
+        m_singleInstance = std::make_unique<wxSingleInstanceChecker>(SingleInstanceName, wxFileName::GetTempDir());
+#endif
     }
 
     if (m_singleInstance->IsAnotherRunning())
@@ -171,10 +196,15 @@ bool Application::OnInit()
             .value_or(env->GetCurrentLocale()));
     
     // Load theme
+#ifdef __WXMSW__
     if (cfg->IsDarkMode())
     {
         wxApp::MSWEnableDarkMode();
     }
+#else
+    // The native controls of macOS take the same choice (the light theme can be forced)
+    SetAppearance(cfg->IsDarkMode() ? Appearance::Dark : Appearance::Light);
+#endif
 
     UI::Theme::Install(cfg->IsDarkMode());
 
@@ -217,7 +247,9 @@ bool Application::OnInit()
         // Only valid if we have a notify icon
         if (cfg->Get<bool>("show_in_notification_area").value())
         {
+#ifdef __WXMSW__
             mainFrame->MSWGetTaskBarButton()->Hide();
+#endif
         }
         else
         {
@@ -272,7 +304,11 @@ void Application::ActivateOtherInstance()
     wxClient client;
     auto conn = client.MakeConnection(
         "localhost",
+#ifdef __WXMSW__
         "HNTorrent",
+#else
+        IPC::Server::SocketPath(),
+#endif
         "ApplicationOptions");
 
     if (conn)
@@ -284,9 +320,18 @@ void Application::ActivateOtherInstance()
 
 void Application::WaitForPreviousInstance(long pid)
 {
+#ifdef _WIN32
     HANDLE hProc = OpenProcess(SYNCHRONIZE, FALSE, pid);
     if (hProc == NULL) { return; }
     // After an update the old version may need a while to save the state of every torrent
     WaitForSingleObject(hProc, 120000);
     CloseHandle(hProc);
+#else
+    // Up to two minutes, like on Windows: the previous instance may need a while to save the
+    // state of every torrent (kill with signal 0 only checks that the process still exists)
+    for (int i = 0; i < 1200 && kill(static_cast<pid_t>(pid), 0) == 0; i++)
+    {
+        wxMilliSleep(100);
+    }
+#endif
 }

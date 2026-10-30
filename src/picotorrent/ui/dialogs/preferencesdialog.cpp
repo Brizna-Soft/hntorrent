@@ -1,6 +1,8 @@
 #include "preferencesdialog.hpp"
 
+#ifdef _WIN32
 #include <CommCtrl.h>
+#endif
 
 #include <wx/bookctrl.h>
 #include <wx/listbook.h>
@@ -155,6 +157,13 @@ void PreferencesDialog::ShowRestartRequiredDialog()
     std::wstring main = i18n("prompt_restart");
     std::wstring title = i18n("prompt_restart_title");
 
+#ifndef _WIN32
+    // macOS: the same question in a native dialog (TaskDialog is Windows only)
+    wxMessageDialog dlg(this, main, title, wxOK | wxCANCEL | wxICON_INFORMATION);
+    dlg.SetOKCancelLabels(wxString(btn), wxString(i18n("cancel")));
+
+    m_wantsRestart = (dlg.ShowModal() == wxID_OK);
+#else
     const TASKDIALOG_BUTTON pButtons[] =
     {
         { 1000, btn.c_str() },
@@ -177,4 +186,5 @@ void PreferencesDialog::ShowRestartRequiredDialog()
     TaskDialogIndirect(&tdf, &pnButton, &pnRadioButton, &pfVerificationFlagChecked);
 
     m_wantsRestart = (pnButton == 1000);
+#endif
 }

@@ -50,7 +50,12 @@
 #include "toolbaricons.hpp"
 #include "translator.hpp"
 
+#ifdef _WIN32
 #include "win32/openfiledialog.hpp"
+#else
+#include <wx/filedlg.h>
+#include <wx/stdpaths.h>
+#endif
 
 namespace fs = std::filesystem;
 using pt::UI::MainFrame;
@@ -126,7 +131,10 @@ MainFrame::MainFrame(std::shared_ptr<pt::Core::Environment> env, std::shared_ptr
     };
 
     this->SetAcceleratorTable(wxAcceleratorTable(static_cast<int>(entries.size()), entries.data()));
+#ifdef __WXMSW__
+    // On macOS the icon of the Dock comes from the app bundle (HNTorrent.icns)
     this->SetIcon(wxICON(AppIcon));
+#endif
     this->SetMenuBar(this->CreateMainMenu());
     this->CreateMainToolBar();
     this->SetSizerAndFit(sizer);
@@ -199,6 +207,7 @@ MainFrame::MainFrame(std::shared_ptr<pt::Core::Environment> env, std::shared_ptr
                 stats.totalPayloadDownloadRate,
                 stats.totalPayloadUploadRate);
 
+#ifdef __WXMSW__
             if (wxTaskBarButton* tbb = MSWGetTaskBarButton())
             {
                 if (stats.isDownloadingAny && stats.totalWanted > 0)
@@ -214,6 +223,7 @@ MainFrame::MainFrame(std::shared_ptr<pt::Core::Environment> env, std::shared_ptr
                     tbb->SetProgressState(wxTaskBarButtonState::wxTASKBAR_BUTTON_NO_PROGRESS);
                 }
             }
+#endif
         });
 
     this->Bind(ptEVT_TORRENTS_UPDATED, [this](pt::BitTorrent::TorrentsUpdatedEvent& evt)
@@ -582,6 +592,7 @@ void MainFrame::CheckDiskSpace(std::vector<pt::BitTorrent::TorrentHandle*> const
     {
         auto status = torrent->Status();
 
+#ifdef _WIN32
         ULARGE_INTEGER freeBytesAvailableToCaller;
         ULARGE_INTEGER totalNumberOfBytes;
         ULARGE_INTEGER totalNumberOfFreeBytes;
@@ -591,10 +602,19 @@ void MainFrame::CheckDiskSpace(std::vector<pt::BitTorrent::TorrentHandle*> const
             &freeBytesAvailableToCaller,
             &totalNumberOfBytes,
             &totalNumberOfFreeBytes);
+#else
+        std::error_code spaceError;
+        fs::space_info space = fs::space(fs::path(status.savePath), spaceError);
+        bool res = !spaceError && space.capacity > 0;
+#endif
 
         if (res)
         {
+#ifdef _WIN32
             float diskSpaceAvailable = static_cast<float>(freeBytesAvailableToCaller.QuadPart) / static_cast<float>(totalNumberOfBytes.QuadPart);
+#else
+            float diskSpaceAvailable = static_cast<float>(space.available) / static_cast<float>(space.capacity);
+#endif
             float diskSpaceLimit = limit / 100.0f;
 
             if (diskSpaceAvailable < diskSpaceLimit)
@@ -705,8 +725,11 @@ wxMenuBar* MainFrame::CreateMainMenu()
     m_viewMenu->Append(ptID_EVT_VIEW_PREFERENCES, i18n("amp_preferences"));
 
     auto helpMenu = new wxMenu();
+#ifdef _WIN32
+    // The updater only exists on Windows
     helpMenu->Append(ptID_EVT_CHECK_FOR_UPDATE, i18n("amp_check_for_update"));
     helpMenu->AppendSeparator();
+#endif
     helpMenu->Append(ptID_EVT_VIEW_HELP, i18n("view_help"));
     helpMenu->Append(ptID_EVT_ABOUT, i18n("amp_about"));
 
@@ -787,7 +810,9 @@ void MainFrame::OnClose(wxCloseEvent& evt)
         && m_cfg->Get<bool>("close_to_notification_area").value())
     {
         Hide();
+#ifdef __WXMSW__
         MSWGetTaskBarButton()->Hide();
+#endif
     }
     else
     {
@@ -814,6 +839,7 @@ void MainFrame::OnFileAddMagnetLink(wxCommandEvent&)
 
 void MainFrame::OnFileAddTorrent(wxCommandEvent&)
 {
+#ifdef _WIN32
     Win32::OpenFileDialog ofd;
 
     ofd.SetFileTypes({
@@ -827,6 +853,30 @@ void MainFrame::OnFileAddTorrent(wxCommandEvent&)
 
     std::vector<std::wstring> files;
     ofd.GetFiles(files);
+#else
+    // macOS: the system dialog, only for .torrent files (with a single type it shows no list
+    // of types, which would be in English)
+    wxFileDialog ofd(
+        this,
+        i18n("add_torrent_s"),
+        wxEmptyString,
+        wxEmptyString,
+        "*.torrent",
+        wxFD_OPEN | wxFD_FILE_MUST_EXIST | wxFD_MULTIPLE);
+
+    std::vector<std::wstring> files;
+
+    if (ofd.ShowModal() == wxID_OK)
+    {
+        wxArrayString paths;
+        ofd.GetPaths(paths);
+
+        for (wxString const& path : paths)
+        {
+            files.push_back(path.ToStdWstring());
+        }
+    }
+#endif
 
     if (files.empty())
     {
@@ -871,13 +921,17 @@ void MainFrame::OnIconize(wxIconizeEvent& ev)
         && m_cfg->Get<bool>("show_in_notification_area").value()
         && m_cfg->Get<bool>("minimize_to_notification_area").value())
     {
+#ifdef __WXMSW__
         MSWGetTaskBarButton()->Hide();
+#endif
     }
 }
 
 void MainFrame::OnTaskBarLeftDown(wxTaskBarIconEvent&)
 {
+#ifdef __WXMSW__
     this->MSWGetTaskBarButton()->Show();
+#endif
 
     if (this->IsIconized())
     {
@@ -897,6 +951,7 @@ void MainFrame::OnViewPreferences(wxCommandEvent&)
     {
         if (dlg.WantsRestart())
         {
+#ifdef _WIN32
             TCHAR path[MAX_PATH];
             GetModuleFileName(NULL, path, ARRAYSIZE(path));
 
@@ -904,6 +959,15 @@ void MainFrame::OnViewPreferences(wxCommandEvent&)
             proc << path << L" --wait-for-pid=" << std::to_wstring(GetCurrentProcessId());
 
             wxExecute(proc.str(), wxEXEC_ASYNC);
+#else
+            // The same program again (HNTorrent.app/Contents/MacOS/HNTorrent), which waits
+            // for this one to exit
+            std::string exe = wxStandardPaths::Get().GetExecutablePath().utf8_string();
+            std::string wait = "--wait-for-pid=" + std::to_string(wxGetProcessId());
+            const char* const argv[] = { exe.c_str(), wait.c_str(), nullptr };
+
+            wxExecute(argv, wxEXEC_ASYNC);
+#endif
             Close(true);
 
             return;
@@ -937,7 +1001,12 @@ void MainFrame::ParseTorrentFiles(std::vector<lt::add_torrent_params>& params, s
         lt::error_code ec;
         lt::add_torrent_params param;
 
+#ifdef _WIN32
         std::ifstream in(path, std::ios::binary);
+#else
+        // Only the Windows library opens a file from a wide string
+        std::ifstream in(fs::path(path), std::ios::binary);
+#endif
         std::stringstream ss;
         ss << in.rdbuf();
 
