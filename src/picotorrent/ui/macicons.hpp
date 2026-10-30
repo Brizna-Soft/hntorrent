@@ -5,8 +5,9 @@
 // like the toolbar icons. packaging/macos/icono.cpp also draws HNTorrent.icns from AppLogo.
 namespace pt::UI::MacIcons
 {
-    // The HNTorrent logo: blue square, download arrow and the five stars of the flag
-    inline const char* AppLogo = R"(<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 120 120">
+    // The HNTorrent logo: blue square, download arrow and the five stars of the flag. The text
+    // has a parenthesis followed by a quote, so this raw string uses the delimiter "svg".
+    inline const char* AppLogo = R"svg(<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 120 120">
 <rect x="0" y="0" width="120" height="120" rx="28" fill="#1A8FD6"/>
 <g fill="#FFFFFF">
 <path transform="translate(60,28)" d="M0,-6 L1.47,-2.02 L5.71,-1.85 L2.38,0.77 L3.53,4.85 L0,2.5 L-3.53,4.85 L-2.38,0.77 L-5.71,-1.85 L-1.47,-2.02 Z"/>
@@ -18,7 +19,7 @@ namespace pt::UI::MacIcons
 <polygon points="36,74 84,74 60,98"/>
 <rect x="32" y="102" width="56" height="6" rx="3"/>
 </g>
-</svg>)";
+</svg>)svg";
 
     // The prompt next to the filter box (the console), for the light and the dark theme
     inline const char* Terminal = R"(<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16">
