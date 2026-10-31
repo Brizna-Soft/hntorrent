@@ -72,7 +72,9 @@ PreferencesDialog::PreferencesDialog(wxWindow* parent, std::shared_ptr<pt::Core:
     {
 #ifdef __WXOSX__
         // The letters of macOS are bigger: at least what the pages need, so no text is cut
-        this->SetSize(GetBestSize().IncTo(FromDIP(wxSize(450, 400))));
+        wxSize size = GetBestSize();
+        size.IncTo(FromDIP(wxSize(450, 400)));
+        this->SetSize(size);
 #else
         this->SetSize(FromDIP(wxSize(450, 400)));
 #endif
