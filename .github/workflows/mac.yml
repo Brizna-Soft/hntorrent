@@ -148,16 +148,20 @@ jobs:
           path: ${{ runner.temp }}/paquete/*.zip
           retention-days: 14
 
-      # Abre la app recién descomprimida (como la abriría el dueño), espera y fotografía solo su ventana.
-      # La Mac de GitHub se pone en español, como la del dueño. Si no aparece la ventana, va la pantalla
-      # completa de la Mac de GitHub (que no es la pantalla de nadie).
+      # Abre la app recién descomprimida (como la abriría el dueño), la cierra y la vuelve a abrir (así se
+      # prueba también lo que guarda al salir), espera y fotografía solo su ventana. Después abre
+      # Preferencias con Cmd+, para ver que también abre bien. La Mac de GitHub se pone en español, como
+      # la del dueño. Si no aparece la ventana, va la pantalla completa de la Mac de GitHub (que no es la
+      # pantalla de nadie).
       - name: Abrir el programa y sacar una captura
         id: captura
         run: |
           prueba="$RUNNER_TEMP/probar"
           fotos="$RUNNER_TEMP/captura"
+          arq='${{ matrix.arquitectura }}'
+          app_id='io.github.brizna-soft.hntorrent'
           mkdir -p "$prueba" "$fotos"
-          ditto -x -k "$RUNNER_TEMP/paquete/HNTorrent-${{ steps.configurar.outputs.version }}-mac-${{ matrix.arquitectura }}.zip" "$prueba"
+          ditto -x -k "$RUNNER_TEMP/paquete/HNTorrent-${{ steps.configurar.outputs.version }}-mac-$arq.zip" "$prueba"
 
           defaults write -g AppleLanguages -array es-HN es
           defaults write -g AppleLocale es_HN
@@ -166,8 +170,11 @@ jobs:
           import CoreGraphics
           import Foundation
 
-          // Prints the number of the biggest normal window of the program, and lists them all
-          let owner = CommandLine.arguments.count > 1 ? CommandLine.arguments[1] : "HNTorrent"
+          // Prints the number of the biggest normal window of the program (or of the one with the
+          // given title), and lists them all
+          let args = CommandLine.arguments
+          let owner = args.count > 1 ? args[1] : "HNTorrent"
+          let title: String? = args.count > 2 ? args[2] : nil
           let options: CGWindowListOption = [.optionOnScreenOnly, .excludeDesktopElements]
           let windows = (CGWindowListCopyWindowInfo(options, kCGNullWindowID) as? [[String: Any]]) ?? []
           var best = 0
@@ -181,7 +188,7 @@ jobs:
               let height = (bounds["Height"] as? NSNumber)?.doubleValue ?? 0
               let name = w[kCGWindowName as String] as? String ?? ""
               FileHandle.standardError.write("ventana \(number): capa \(layer), \(Int(width))x\(Int(height)) \(name)\n".data(using: .utf8)!)
-              if layer == 0 && width * height > bestArea {
+              if layer == 0 && (title == nil || name == title!) && width * height > bestArea {
                   best = number
                   bestArea = width * height
               }
@@ -190,23 +197,58 @@ jobs:
           SWIFT
           swiftc -O -o "$RUNNER_TEMP/ventana" "$RUNNER_TEMP/ventana.swift"
 
+          fallo=0
+          abierto() {
+            if pgrep -x HNTorrent > /dev/null; then echo "HNTorrent está abierto ($1)"; else echo "::error::HNTorrent no está abierto ($1)"; fallo=1; fi
+          }
+          cerrar() {
+            osascript -e "tell application id \"$app_id\" to quit" || true
+            for i in $(seq 1 30); do pgrep -x HNTorrent > /dev/null || return 0; sleep 1; done
+            echo "::warning::HNTorrent no se cerró solo"
+            pkill -x HNTorrent || true
+          }
+
+          # 1. La primera vez crea su base de datos; al salir guarda la ventana y las columnas
           open -n "$prueba/HNTorrent.app"
           sleep 15
+          abierto "primera vez"
+          cerrar
+          sleep 3
 
-          if pgrep -x HNTorrent > /dev/null; then echo "HNTorrent está abierto"; else echo "::warning::HNTorrent no está abierto"; fi
+          # 2. La segunda vez lee lo guardado: esta es la captura
+          open -n "$prueba/HNTorrent.app"
+          sleep 12
+          abierto "segunda vez"
+          osascript -e "tell application id \"$app_id\" to activate" || true
+          sleep 2
           id=$("$RUNNER_TEMP/ventana" HNTorrent || true)
 
-          if [ -n "$id" ] && screencapture -x -o -l"$id" "$fotos/HNTorrent-mac-${{ matrix.arquitectura }}.png"; then
+          if [ -n "$id" ] && screencapture -x -o -l"$id" "$fotos/HNTorrent-mac-$arq.png"; then
             echo "Captura de la ventana $id"
           else
             echo "::warning::No encontré la ventana de HNTorrent: va la pantalla completa de la Mac de GitHub"
-            screencapture -x "$fotos/pantalla-mac-${{ matrix.arquitectura }}.png"
+            screencapture -x "$fotos/pantalla-mac-$arq.png"
           fi
-          ls -la "$fotos"
 
-          osascript -e 'tell application id "io.github.brizna-soft.hntorrent" to quit' || true
-          for i in $(seq 1 30); do pgrep -x HNTorrent > /dev/null || break; sleep 1; done
-          pkill -x HNTorrent || true
+          # 3. Preferencias con Cmd+, (en el Mac va en el menú HNTorrent)
+          osascript -e "tell application id \"$app_id\" to activate" || true
+          sleep 1
+          ( osascript -e 'tell application "System Events" to keystroke "," using command down' || echo "::warning::No pude mandar Cmd+," ) &
+          sleep 6
+          prefs=$("$RUNNER_TEMP/ventana" HNTorrent Preferencias || true)
+          if [ -n "$prefs" ] && screencapture -x -o -l"$prefs" "$fotos/preferencias-mac-$arq.png"; then
+            echo "Preferencias abrió bien (ventana $prefs)"
+            osascript -e 'tell application "System Events" to key code 53' || true
+            sleep 3
+          else
+            echo "::warning::No vi la ventana de Preferencias"
+          fi
+          abierto "después de Preferencias"
+
+          cerrar
+          pkill -x osascript || true
+          ls -la "$fotos"
+          exit $fallo
 
       - name: Registros del programa
         if: always() && steps.captura.outcome != 'skipped'

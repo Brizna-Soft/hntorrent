@@ -297,6 +297,11 @@ MainFrame::MainFrame(std::shared_ptr<pt::Core::Environment> env, std::shared_ptr
     this->Bind(wxEVT_MENU, &MainFrame::OnViewHelp, this, ptID_EVT_VIEW_HELP);
     this->Bind(wxEVT_MENU, &MainFrame::OnHelpAbout, this, ptID_EVT_ABOUT);
     this->Bind(wxEVT_MENU, &MainFrame::OnHelpCheckForUpdate, this, ptID_EVT_CHECK_FOR_UPDATE);
+#ifdef __WXOSX__
+    // On macOS About and Preferences have the standard ids (see CreateMainMenu)
+    this->Bind(wxEVT_MENU, &MainFrame::OnHelpAbout, this, wxID_ABOUT);
+    this->Bind(wxEVT_MENU, &MainFrame::OnViewPreferences, this, wxID_PREFERENCES);
+#endif
 
     // Toolbar (adding torrents reuses the menu ids above)
     this->Bind(wxEVT_MENU, [this](wxCommandEvent&) { for (auto const& sel : m_selection) { sel.second->Resume(); } }, ptID_TOOLBAR_RESUME);
@@ -722,7 +727,12 @@ wxMenuBar* MainFrame::CreateMainMenu()
     m_menuItemDetailsPanel = m_viewMenu->Append(ptID_EVT_SHOW_DETAILS, i18n("amp_details_panel"));
     m_menuItemStatusBar = m_viewMenu->Append(ptID_EVT_SHOW_STATUS_BAR, i18n("amp_status_bar"));
     m_viewMenu->AppendSeparator();
+#ifdef __WXOSX__
+    // With the standard id, macOS shows it in the application menu (HNTorrent), with Cmd+,
+    m_viewMenu->Append(wxID_PREFERENCES, i18n("amp_preferences") + L"\tCtrl+,");
+#else
     m_viewMenu->Append(ptID_EVT_VIEW_PREFERENCES, i18n("amp_preferences"));
+#endif
 
     auto helpMenu = new wxMenu();
 #ifdef _WIN32
@@ -731,7 +741,12 @@ wxMenuBar* MainFrame::CreateMainMenu()
     helpMenu->AppendSeparator();
 #endif
     helpMenu->Append(ptID_EVT_VIEW_HELP, i18n("view_help"));
+#ifdef __WXOSX__
+    // Also in the application menu of macOS
+    helpMenu->Append(wxID_ABOUT, i18n("amp_about"));
+#else
     helpMenu->Append(ptID_EVT_ABOUT, i18n("amp_about"));
+#endif
 
     auto mainMenu = new wxMenuBar();
     mainMenu->Append(fileMenu, i18n("amp_file"));
