@@ -350,6 +350,30 @@ if(APPLE)
     # Bringing the window back from the menu bar icon and the Dock
     target_sources(PicoTorrent PRIVATE src/picotorrent/ui/macapp.mm)
 
+    # The menus that wxWidgets makes on macOS (HNTorrent, Window) take their texts from its own
+    # catalog. The Spanish one goes in Resources/es.lproj/wxstd.mo, made from vendor/wx/locale/es.po
+    # with msgfmt (gettext); without msgfmt those menus stay in English.
+    find_program(PICO_MSGFMT msgfmt HINTS /opt/homebrew/opt/gettext/bin /usr/local/opt/gettext/bin)
+
+    if(PICO_MSGFMT)
+        set(PICO_WXSTD_ES "${CMAKE_BINARY_DIR}/wxstd-es.mo")
+        add_custom_command(
+            OUTPUT "${PICO_WXSTD_ES}"
+            COMMAND "${PICO_MSGFMT}" -o "${PICO_WXSTD_ES}" "${CMAKE_SOURCE_DIR}/vendor/wx/locale/es.po"
+            DEPENDS "${CMAKE_SOURCE_DIR}/vendor/wx/locale/es.po"
+            VERBATIM
+        )
+        add_custom_target(HNTorrent-wxstd-es DEPENDS "${PICO_WXSTD_ES}")
+        add_dependencies(PicoTorrent HNTorrent-wxstd-es)
+        add_custom_command(
+            TARGET PicoTorrent POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_BUNDLE_CONTENT_DIR:PicoTorrent>/Resources/es.lproj"
+            COMMAND ${CMAKE_COMMAND} -E copy "${PICO_WXSTD_ES}" "$<TARGET_BUNDLE_CONTENT_DIR:PicoTorrent>/Resources/es.lproj/wxstd.mo"
+        )
+    else()
+        message(WARNING "msgfmt (gettext) was not found: the menus that wxWidgets makes on macOS will be in English")
+    endif()
+
     # Draws the icon of the app (HNTorrent.icns) from the logo in ui/macicons.hpp
     add_executable(HNTorrent-icono packaging/macos/icono.cpp)
     target_include_directories(

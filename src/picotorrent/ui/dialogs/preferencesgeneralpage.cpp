@@ -130,16 +130,32 @@ PreferencesGeneralPage::PreferencesGeneralPage(wxWindow* parent, std::shared_ptr
     miscGrid->Add(m_startPosition, 1, wxALIGN_RIGHT | wxALIGN_CENTER_VERTICAL);
     miscSizer->Add(miscGrid, 1, wxEXPAND | wxALL, FromDIP(5));
 
+#ifdef __WXOSX__
+    // macOS has no notification area: the icon of HNTorrent goes in the menu bar
+    wxStaticBoxSizer* notifSizer = new wxStaticBoxSizer(wxVERTICAL, this, i18n("menu_bar_mac"));
+#else
     wxStaticBoxSizer* notifSizer = new wxStaticBoxSizer(wxVERTICAL, this, i18n("notification_area"));
+#endif
     wxFlexGridSizer* notifGrid = new wxFlexGridSizer(1, FromDIP(10), FromDIP(10));
 
+#ifdef __WXOSX__
+    m_showNotificationIcon = new wxCheckBox(notifSizer->GetStaticBox(), wxID_ANY, i18n("show_in_menu_bar_mac"));
+    m_minimizeNotification = new wxCheckBox(notifSizer->GetStaticBox(), wxID_ANY, i18n("minimize_to_notification_area"));
+    m_closeNotification = new wxCheckBox(notifSizer->GetStaticBox(), wxID_ANY, i18n("close_to_menu_bar_mac"));
+#else
     m_showNotificationIcon = new wxCheckBox(notifSizer->GetStaticBox(), wxID_ANY, i18n("show_picotorrent_in_notification_area"));
     m_minimizeNotification = new wxCheckBox(notifSizer->GetStaticBox(), wxID_ANY, i18n("minimize_to_notification_area"));
     m_closeNotification = new wxCheckBox(notifSizer->GetStaticBox(), wxID_ANY, i18n("close_to_notification_area"));
+#endif
 
     notifGrid->AddGrowableCol(0, 1);
     notifGrid->Add(m_showNotificationIcon);
+#ifdef __WXOSX__
+    // On macOS minimizing always sends the window to the Dock, so this option does nothing there
+    m_minimizeNotification->Hide();
+#else
     notifGrid->Add(m_minimizeNotification, 0, wxLEFT, FromDIP(15));
+#endif
     notifGrid->Add(m_closeNotification, 0, wxLEFT, FromDIP(15));
     notifSizer->Add(notifGrid, 1, wxEXPAND | wxALL, FromDIP(5));
 
@@ -163,7 +179,12 @@ PreferencesGeneralPage::PreferencesGeneralPage(wxWindow* parent, std::shared_ptr
         }
     }
     
+#ifdef __WXOSX__
+    // The Windows text says "Like Windows"
+    m_theme->Append(i18n("follow_system_theme_mac"), new ClientData<std::string>("system"));
+#else
     m_theme->Append(i18n("follow_system_theme"), new ClientData<std::string>("system"));
+#endif
     m_theme->Append(i18n("light_theme"), new ClientData<std::string>("light"));
     if (m_cfg->Get<std::string>("theme_id").value_or("system") == "light")
     {
@@ -188,7 +209,12 @@ PreferencesGeneralPage::PreferencesGeneralPage(wxWindow* parent, std::shared_ptr
 
     m_startPosition->Append(i18n("normal"), new ClientData<Configuration::WindowState>(Configuration::WindowState::Normal));
     m_startPosition->Append(i18n("minimized"), new ClientData<Configuration::WindowState>(Configuration::WindowState::Minimized));
+#ifdef __WXOSX__
+    // Hidden: only the icon in the menu bar (the Windows text says "System tray")
+    m_startPosition->Append(i18n("start_in_menu_bar_mac"), new ClientData<Configuration::WindowState>(Configuration::WindowState::Hidden));
+#else
     m_startPosition->Append(i18n("hidden"), new ClientData<Configuration::WindowState>(Configuration::WindowState::Hidden));
+#endif
     m_startPosition->Append(i18n("maximized"), new ClientData<Configuration::WindowState>(Configuration::WindowState::Maximized));
     m_startPosition->SetSelection(m_cfg->Get<int>("start_position").value());
 

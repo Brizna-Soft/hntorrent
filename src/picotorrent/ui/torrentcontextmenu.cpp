@@ -132,7 +132,12 @@ TorrentContextMenu::TorrentContextMenu(wxWindow* parent, std::shared_ptr<pt::Cor
     AppendSubMenu(queueMenu, i18n("queuing"));
     AppendSeparator();
     Append(ptID_COPY_INFO_HASH, i18n("copy_info_hash"));
+#ifdef __WXOSX__
+    // It opens a Finder window with the files selected
+    Append(ptID_OPEN_IN_EXPLORER, i18n("show_in_finder_mac"));
+#else
     Append(ptID_OPEN_IN_EXPLORER, i18n("open_in_explorer"));
+#endif
 
     // Bind events
     Bind(

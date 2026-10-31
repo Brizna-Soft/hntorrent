@@ -59,6 +59,16 @@ jobs:
         id: antes
         run: echo "n=$(find "$VCPKG_DEFAULT_BINARY_CACHE" -type f | wc -l | tr -d ' ')" >> "$GITHUB_OUTPUT"
 
+      # msgfmt (de gettext) arma el catálogo en español de wxWidgets, que da sus textos a los menús
+      # HNTorrent y Ventana de la Mac
+      - name: gettext para el menú en español
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: '1'
+          HOMEBREW_NO_INSTALL_CLEANUP: '1'
+        run: |
+          if command -v msgfmt > /dev/null || brew list gettext > /dev/null 2>&1; then echo "gettext ya está"; else brew install gettext; fi
+          command -v msgfmt || ls "$(brew --prefix gettext)/bin/msgfmt"
+
       # Aquí vcpkg baja y compila Boost, OpenSSL, libtorrent y lo demás (la primera vez tarda)
       - name: Configurar
         id: configurar
@@ -115,6 +125,8 @@ jobs:
         run: |
           app=build/HNTorrent.app
           ls -la "$app/Contents" "$app/Contents/MacOS" "$app/Contents/Resources"
+          # El catálogo en español de wxWidgets (menús HNTorrent y Ventana)
+          ls -la "$app/Contents/Resources/es.lproj/wxstd.mo"
           plutil -lint "$app/Contents/Info.plist"
           plutil -p "$app/Contents/Info.plist"
           lipo -archs "$app/Contents/MacOS/HNTorrent"
@@ -149,11 +161,12 @@ jobs:
           retention-days: 14
 
       # Abre la app recién descomprimida (como la abriría el dueño), la cierra y la vuelve a abrir (así se
-      # prueba también lo que guarda al salir), espera y fotografía solo su ventana. Después abre
-      # Preferencias con Cmd+, y prueba «Cerrar al área de notificación»: cierra la ventana y la hace
-      # volver como el clic al ícono del Dock (reopen) y con «Mostrar HNTorrent» del ícono de la barra de
-      # arriba. La Mac de GitHub se pone en español, como la del dueño. Si no aparece la ventana, va la
-      # pantalla completa de la Mac de GitHub (que no es la pantalla de nadie).
+      # prueba también lo que guarda al salir), espera y fotografía solo su ventana y su menú HNTorrent.
+      # Después abre Preferencias con Cmd+, y prueba «Cerrar a la barra de menús»: cierra la ventana y
+      # la hace volver como el clic al ícono del Dock (reopen) y con «Mostrar HNTorrent» del ícono de la
+      # barra de arriba. Al final prueba que se guarde el orden de las columnas. La Mac de GitHub se pone
+      # en español, como la del dueño. Si no aparece la ventana, va la pantalla completa de la Mac de
+      # GitHub (que no es la pantalla de nadie).
       - name: Abrir el programa y sacar una captura
         id: captura
         run: |
@@ -172,7 +185,8 @@ jobs:
           import Foundation
 
           // Prints the number of the biggest normal window of the program (or of the one with the
-          // given title, at any level: dialogs float above), and lists them all
+          // given title, at any level: dialogs float above; "#menu" is an open menu), and lists
+          // them all
           let args = CommandLine.arguments
           let owner = args.count > 1 ? args[1] : "HNTorrent"
           let title: String? = args.count > 2 ? args[2] : nil
@@ -189,7 +203,7 @@ jobs:
               let height = (bounds["Height"] as? NSNumber)?.doubleValue ?? 0
               let name = w[kCGWindowName as String] as? String ?? ""
               FileHandle.standardError.write("ventana \(number): capa \(layer), \(Int(width))x\(Int(height)) \(name)\n".data(using: .utf8)!)
-              let wanted = title == nil ? layer == 0 : name == title!
+              let wanted = title == nil ? layer == 0 : (title! == "#menu" ? layer >= 100 : name == title!)
               if wanted && width * height > bestArea {
                   best = number
                   bestArea = width * height
@@ -243,6 +257,22 @@ jobs:
             screencapture -x "$fotos/pantalla-mac-$arq.png"
           fi
 
+          # 2b. Los menús que arma wxWidgets, en español: los nombres de la barra y el menú HNTorrent
+          #     abierto (la captura es solo del menú)
+          echo "Menús: $(osascript -e 'tell application "System Events" to tell process "HNTorrent" to get name of every menu bar item of menu bar 1' || true)"
+          echo "Menú HNTorrent: $(osascript -e 'tell application "System Events" to tell process "HNTorrent" to get name of every menu item of menu 1 of menu bar item 2 of menu bar 1' || true)"
+          echo "Menú de ventanas: $(osascript -e 'tell application "System Events" to tell process "HNTorrent" to get name of every menu item of menu 1 of menu bar item -2 of menu bar 1' || true)"
+          ( osascript -e 'tell application "System Events" to tell process "HNTorrent" to click menu bar item 2 of menu bar 1' > /dev/null 2>&1 || true ) &
+          sleep 3
+          menu=$("$RUNNER_TEMP/ventana" HNTorrent "#menu" || true)
+          if [ -n "$menu" ] && screencapture -x -o -l"$menu" "$fotos/menu-HNTorrent-mac-$arq.png"; then
+            echo "Captura del menú HNTorrent (ventana $menu)"
+          else
+            echo "::warning::No pude fotografiar el menú HNTorrent"
+          fi
+          osascript -e 'tell application "System Events" to key code 53' || true
+          sleep 2
+
           # 3. Preferencias con Cmd+, (en el Mac va en el menú HNTorrent)
           osascript -e "tell application id \"$app_id\" to activate" || true
           sleep 1
@@ -293,6 +323,51 @@ jobs:
 
           cerrar
           pkill -x osascript || true
+
+          # 7. Orden de las columnas: se cambia el guardado (las dos primeras al revés), se abre y se
+          #    cierra HNTorrent, y lo que guarda al salir tiene que ser ese mismo orden
+          cat > "$RUNNER_TEMP/columnas.py" <<'PY'
+          import json, sqlite3, sys
+
+          con = sqlite3.connect(sys.argv[1])
+          names = ("Models", "Hidden", "Widths")
+
+          def get(name):
+              row = con.execute("SELECT value FROM persistent_object WHERE key LIKE ?", ("torrentList2/%/" + name,)).fetchone()
+              return json.loads(json.loads(row[0]))
+
+          def put(name, value):
+              text = json.dumps(json.dumps(value, separators=(",", ":")))
+              con.execute("UPDATE persistent_object SET value = ? WHERE key LIKE ?", (text, "torrentList2/%/" + name))
+
+          if sys.argv[2] == "cambiar":
+              arrays = {name: get(name) for name in names}
+              for values in arrays.values():
+                  values[0], values[1] = values[1], values[0]
+              for name in names:
+                  put(name, arrays[name])
+              con.commit()
+              print(json.dumps(arrays["Models"]))
+          else:
+              print(json.dumps(get("Models")))
+          PY
+          antes=$(python3 "$RUNNER_TEMP/columnas.py" "$db" leer)
+          esperado=$(python3 "$RUNNER_TEMP/columnas.py" "$db" cambiar)
+          echo "Orden guardado: $antes; orden cambiado: $esperado"
+          open -n "$prueba/HNTorrent.app"
+          sleep 12
+          abierto "con el orden de las columnas cambiado"
+          id=$("$RUNNER_TEMP/ventana" HNTorrent 2>/dev/null || true)
+          if [ -n "$id" ]; then screencapture -x -o -l"$id" "$fotos/columnas-mac-$arq.png" || true; fi
+          cerrar
+          despues=$(python3 "$RUNNER_TEMP/columnas.py" "$db" leer)
+          if [ "$despues" = "$esperado" ]; then
+            echo "El orden de las columnas se recuperó y se volvió a guardar: $despues"
+          else
+            echo "::error::El orden de las columnas no se recuperó (esperado $esperado, quedó $despues)"
+            fallo=1
+          fi
+
           ls -la "$fotos"
           exit $fallo
 

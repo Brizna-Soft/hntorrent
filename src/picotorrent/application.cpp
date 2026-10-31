@@ -29,6 +29,10 @@
 #include "ipc/server.hpp"
 #endif
 
+#ifdef __WXOSX__
+#include <wx/translation.h>
+#endif
+
 using json = nlohmann::json;
 using pt::Application;
 
@@ -194,7 +198,20 @@ bool Application::OnInit()
     translator.SetLocale(
         cfg->Get<std::string>("locale_name")
             .value_or(env->GetCurrentLocale()));
-    
+
+#ifdef __WXOSX__
+    // On macOS wxWidgets makes some menus itself (HNTorrent, with Hide and Quit, and Window)
+    // and takes their texts from its own catalog: the one of the language of HNTorrent, in
+    // HNTorrent.app/Contents/Resources/<language>.lproj/wxstd.mo ("es-ES" uses es.lproj).
+    // Without a catalog for the language they stay in English. Before the menus are made.
+    {
+        auto wxTr = new wxTranslations();
+        wxTr->SetLanguage(wxString(translator.GetLocale()).BeforeFirst('-'));
+        wxTr->AddStdCatalog();
+        wxTranslations::Set(wxTr);
+    }
+#endif
+
     // Load theme
 #ifdef __WXMSW__
     if (cfg->IsDarkMode())

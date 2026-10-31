@@ -7,6 +7,10 @@
 #include "../models/torrentlistmodel.hpp"
 #include "../torrentlistview.hpp"
 
+#ifndef __WXMSW__
+#include "../macapp.hpp"
+#endif
+
 using json = nlohmann::json;
 using pt::UI::TorrentListView;
 using pt::UI::Models::TorrentListModel;
@@ -81,19 +85,33 @@ bool PersistentTorrentListView::Restore()
     }
 
 #ifndef __WXMSW__
-    // macOS: the native list deletes a column when it is removed, so the columns cannot be put
-    // back in the saved order. They keep their order; the hidden ones and the widths come back.
+    // macOS: the native list destroys a column when it is removed, so instead of removing and
+    // adding them again (as below), each column is moved in the native table to its saved place.
+    // Every saved column must exist before anything moves.
     for (uint32_t i = 0; i < m_tlv->GetColumnCount(); i++)
     {
-        auto col = m_tlv->GetColumn(i);
-        int64_t modelIndex = static_cast<int64_t>(col->GetModelColumn());
+        int64_t modelIndex = static_cast<int64_t>(m_tlv->GetColumn(i)->GetModelColumn());
+        if (std::find(models.begin(), models.end(), modelIndex) == models.end()) { return false; }
+    }
 
-        auto iter = std::find(models.begin(), models.end(), modelIndex);
-        if (iter == models.end()) { return false; }
-        auto saved = static_cast<size_t>(std::distance(models.begin(), iter));
+    for (uint32_t i = 0; i < models.size(); i++)
+    {
+        // The columns before i are already in place, so the one saved at i is at i or after it
+        for (uint32_t pos = i; pos < m_tlv->GetColumnCount(); pos++)
+        {
+            auto col = m_tlv->GetColumn(pos);
 
-        col->SetHidden(hidden[saved]);
-        col->SetWidth(widths[saved]);
+            if (static_cast<int64_t>(col->GetModelColumn()) != models[i].get<int64_t>())
+            {
+                continue;
+            }
+
+            Mac::MoveTableColumn(m_tlv->GetHandle(), static_cast<int>(pos), static_cast<int>(i));
+
+            col->SetHidden(hidden[i]);
+            col->SetWidth(widths[i]);
+            break;
+        }
     }
 #else
     std::vector<wxDataViewColumn*> cols;
