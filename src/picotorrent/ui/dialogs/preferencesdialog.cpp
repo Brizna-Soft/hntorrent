@@ -70,7 +70,12 @@ PreferencesDialog::PreferencesDialog(wxWindow* parent, std::shared_ptr<pt::Core:
 
     if (!wxPersistenceManager::Get().RegisterAndRestore(this))
     {
+#ifdef __WXOSX__
+        // The letters of macOS are bigger: at least what the pages need, so no text is cut
+        this->SetSize(GetBestSize().IncTo(FromDIP(wxSize(450, 400))));
+#else
         this->SetSize(FromDIP(wxSize(450, 400)));
+#endif
     }
 
     this->Bind(wxEVT_BUTTON, &PreferencesDialog::OnOk, this, wxID_OK);
