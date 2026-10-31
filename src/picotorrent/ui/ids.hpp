@@ -47,5 +47,14 @@ namespace UI
         ptID_EVT_LABELS_NONE,
         ptID_EVT_LABELS_USER
     };
+
+#ifdef __WXOSX__
+    // macOS only: "Show HNTorrent" in the menu of the menu bar icon. It stays clear of the
+    // ranges above, which grow with the filters and labels of the user.
+    enum
+    {
+        ptID_EVT_SHOW_MAIN_WINDOW = ptID_EVT_LABELS_USER + 10000
+    };
+#endif
 }
 }

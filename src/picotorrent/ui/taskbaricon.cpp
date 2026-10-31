@@ -43,6 +43,12 @@ void TaskBarIcon::Show()
 wxMenu* TaskBarIcon::CreatePopupMenu()
 {
     wxMenu* menu = new wxMenu();
+#ifdef __WXOSX__
+    // On macOS a click on the icon only opens this menu (Windows brings the window back with
+    // the click itself), so the window comes back from here, also when it was closed to the icon
+    menu->Append(ptID_EVT_SHOW_MAIN_WINDOW, i18n("show_hntorrent"));
+    menu->AppendSeparator();
+#endif
     menu->Append(ptID_EVT_ADD_TORRENT, i18n("amp_add_torrent"));
     menu->Append(ptID_EVT_ADD_MAGNET_LINK, i18n("amp_add_magnet_link_s"));
     menu->AppendSeparator();

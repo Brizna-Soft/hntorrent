@@ -158,6 +158,7 @@
     "maximized": "Maximized",
     "notification_area": "Notification area",
     "show_picotorrent_in_notification_area": "Show HNTorrent in notification area",
+    "show_hntorrent": "Show HNTorrent",
     "minimize_to_notification_area": "Minimize to notification area",
     "close_to_notification_area": "Close to notification area",
     "info_hash": "Info hash",

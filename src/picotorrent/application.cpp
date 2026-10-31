@@ -278,6 +278,22 @@ bool Application::OnInit()
     return true;
 }
 
+#ifdef __WXOSX__
+void Application::MacReopenApp()
+{
+    for (wxWindowList::compatibility_iterator node = wxTopLevelWindows.GetFirst(); node; node = node->GetNext())
+    {
+        if (auto mainFrame = dynamic_cast<UI::MainFrame*>(node->GetData()))
+        {
+            mainFrame->ShowAndActivate();
+            return;
+        }
+    }
+
+    wxApp::MacReopenApp();
+}
+#endif
+
 void Application::OnInitCmdLine(wxCmdLineParser& parser)
 {
     static const wxCmdLineEntryDesc cmdLineDesc[] =

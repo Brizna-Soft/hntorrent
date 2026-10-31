@@ -63,6 +63,12 @@ namespace Models
 
         void HandleParams(pt::CommandLineOptions const& options);
 
+#ifdef __WXOSX__
+        // Brings the window to the front and activates HNTorrent, also when it was closed to the
+        // menu bar icon or minimized (macOS: "Show HNTorrent" in that menu and the Dock icon)
+        void ShowAndActivate();
+#endif
+
     private:
         wxMenuBar* CreateMainMenu();
         void CreateMainToolBar();

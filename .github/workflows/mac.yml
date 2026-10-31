@@ -150,9 +150,10 @@ jobs:
 
       # Abre la app recién descomprimida (como la abriría el dueño), la cierra y la vuelve a abrir (así se
       # prueba también lo que guarda al salir), espera y fotografía solo su ventana. Después abre
-      # Preferencias con Cmd+, para ver que también abre bien. La Mac de GitHub se pone en español, como
-      # la del dueño. Si no aparece la ventana, va la pantalla completa de la Mac de GitHub (que no es la
-      # pantalla de nadie).
+      # Preferencias con Cmd+, y prueba «Cerrar al área de notificación»: cierra la ventana y la hace
+      # volver como el clic al ícono del Dock (reopen) y con «Mostrar HNTorrent» del ícono de la barra de
+      # arriba. La Mac de GitHub se pone en español, como la del dueño. Si no aparece la ventana, va la
+      # pantalla completa de la Mac de GitHub (que no es la pantalla de nadie).
       - name: Abrir el programa y sacar una captura
         id: captura
         run: |
@@ -209,12 +210,23 @@ jobs:
             pkill -x HNTorrent || true
           }
 
+          visible() { [ -n "$("$RUNNER_TEMP/ventana" HNTorrent 2>/dev/null || true)" ]; }
+          boton_cerrar() {
+            osascript -e 'tell application "System Events" to tell process "HNTorrent" to click (first button of window "HNTorrent" whose subrole is "AXCloseButton")' || echo "::warning::No pude pulsar el botón de cerrar"
+          }
+
           # 1. La primera vez crea su base de datos; al salir guarda la ventana y las columnas
           open -n "$prueba/HNTorrent.app"
           sleep 15
           abierto "primera vez"
           cerrar
           sleep 3
+
+          # Para la prueba 4: «Cerrar al área de notificación» activado (el ícono de la barra de arriba
+          # ya está activado por omisión)
+          db="$HOME/Library/Application Support/HNTorrent/HNTorrent.sqlite"
+          sqlite3 "$db" "UPDATE setting SET value = 'true' WHERE key = 'close_to_notification_area';"
+          sqlite3 "$db" "SELECT key, value FROM setting WHERE key IN ('show_in_notification_area', 'close_to_notification_area');"
 
           # 2. La segunda vez lee lo guardado: esta es la captura
           open -n "$prueba/HNTorrent.app"
@@ -245,6 +257,39 @@ jobs:
             echo "::warning::No vi la ventana de Preferencias"
           fi
           abierto "después de Preferencias"
+
+          # 4. Cerrar la ventana con «Cerrar al área de notificación»: HNTorrent sigue abierto y la
+          #    ventana se esconde
+          boton_cerrar
+          sleep 3
+          abierto "con la ventana cerrada al área de notificación"
+          if visible; then echo "::error::La ventana no se escondió al cerrarla"; fallo=1; else echo "La ventana quedó escondida"; fi
+
+          # 5. Pedir que vuelva como lo hace el clic al ícono del Dock (reopen)
+          osascript -e "tell application id \"$app_id\" to reopen" || true
+          sleep 4
+          if visible; then echo "La ventana volvió con reopen (ícono del Dock)"; else echo "::error::La ventana no volvió con reopen (ícono del Dock)"; fallo=1; fi
+          echo "Aplicación al frente: $(osascript -e 'tell application "System Events" to get name of first process whose frontmost is true' || true)"
+
+          # 6. Lo mismo con «Mostrar HNTorrent» del menú del ícono de la barra de arriba. Si la Mac de
+          #    GitHub no deja usar ese menú, solo queda el aviso.
+          boton_cerrar
+          sleep 3
+          if visible; then echo "::warning::La ventana no se escondió la segunda vez"; fi
+          ( osascript -e 'tell application "System Events" to tell process "HNTorrent" to click menu bar item 1 of menu bar 2' > /dev/null 2>&1 || true ) &
+          sleep 4
+          screencapture -x "$fotos/menu-del-icono-mac-$arq.png" || true
+          if osascript -e 'tell application "System Events" to tell process "HNTorrent" to click menu item "Mostrar HNTorrent" of menu 1 of menu bar item 1 of menu bar 2'; then
+            sleep 4
+            if visible; then echo "La ventana volvió con «Mostrar HNTorrent» del ícono de la barra de arriba"; else echo "::error::«Mostrar HNTorrent» no trajo la ventana"; fallo=1; fi
+          else
+            echo "::warning::En la Mac de GitHub no se pudo usar el menú del ícono de la barra de arriba; esa parte no quedó probada"
+            osascript -e 'tell application "System Events" to key code 53' || true
+            sleep 2
+            osascript -e "tell application id \"$app_id\" to reopen" || true
+            sleep 3
+          fi
+          abierto "al final"
 
           cerrar
           pkill -x osascript || true

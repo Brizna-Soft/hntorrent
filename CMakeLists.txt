@@ -14,6 +14,11 @@ endif()
 
 project("PicoTorrent")
 
+if(APPLE)
+    # ui/macapp.mm calls Cocoa (Objective-C++) for what wxWidgets does not offer
+    enable_language(OBJCXX)
+endif()
+
 set(CMAKE_CXX_STANDARD 17)
 
 # --------- antlr4 options
@@ -341,6 +346,9 @@ if(APPLE)
     string(APPEND PICO_DB_MIGRATIONS_CPP "\n    const Entry Entries[] =\n    {\n${PICO_DB_MIGRATIONS_ENTRIES}    };\n\n    const std::size_t Count = ${PICO_DB_MIGRATIONS_COUNT};\n}\n")
     file(WRITE "${CMAKE_BINARY_DIR}/generated/dbmigrations.cpp" "${PICO_DB_MIGRATIONS_CPP}")
     target_sources(PicoTorrent PRIVATE "${CMAKE_BINARY_DIR}/generated/dbmigrations.cpp")
+
+    # Bringing the window back from the menu bar icon and the Dock
+    target_sources(PicoTorrent PRIVATE src/picotorrent/ui/macapp.mm)
 
     # Draws the icon of the app (HNTorrent.icns) from the logo in ui/macicons.hpp
     add_executable(HNTorrent-icono packaging/macos/icono.cpp)

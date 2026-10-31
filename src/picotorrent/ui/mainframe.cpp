@@ -57,6 +57,10 @@
 #include <wx/stdpaths.h>
 #endif
 
+#ifdef __WXOSX__
+#include "macapp.hpp"
+#endif
+
 namespace fs = std::filesystem;
 using pt::UI::MainFrame;
 
@@ -319,6 +323,10 @@ MainFrame::MainFrame(std::shared_ptr<pt::Core::Environment> env, std::shared_ptr
     m_taskBarIcon->Bind(wxEVT_MENU, [this](wxCommandEvent&) { this->Close(true); }, ptID_EVT_EXIT);
     m_taskBarIcon->Bind(wxEVT_MENU, &MainFrame::OnViewPreferences, this, ptID_EVT_VIEW_PREFERENCES);
     m_taskBarIcon->Bind(wxEVT_TASKBAR_LEFT_DOWN, &MainFrame::OnTaskBarLeftDown, this, wxID_ANY);
+#ifdef __WXOSX__
+    // On macOS the click on the icon opens its menu instead (see TaskBarIcon::CreatePopupMenu)
+    m_taskBarIcon->Bind(wxEVT_MENU, [this](wxCommandEvent&) { ShowAndActivate(); }, ptID_EVT_SHOW_MAIN_WINDOW);
+#endif
 
     this->Bind(
         wxEVT_MENU,
@@ -941,6 +949,33 @@ void MainFrame::OnIconize(wxIconizeEvent& ev)
 #endif
     }
 }
+
+#ifdef __WXOSX__
+void MainFrame::ShowAndActivate()
+{
+    bool wasHidden = !IsShown();
+
+    if (wasHidden)
+    {
+        Show(true);
+    }
+
+    if (IsIconized())
+    {
+        Iconize(false);
+        wasHidden = true;
+    }
+
+    // A window that was visible comes forward with the application; raising it while a dialog
+    // of HNTorrent is open would put it over the dialog
+    if (wasHidden)
+    {
+        Raise();
+    }
+
+    Mac::ActivateApplication();
+}
+#endif
 
 void MainFrame::OnTaskBarLeftDown(wxTaskBarIconEvent&)
 {

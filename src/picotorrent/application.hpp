@@ -29,6 +29,12 @@ namespace API
         virtual bool OnInit() wxOVERRIDE;
         virtual void OnInitCmdLine(wxCmdLineParser&) wxOVERRIDE;
 
+#ifdef __WXOSX__
+        // A click on the Dock icon (or opening HNTorrent again): brings the window back, also
+        // when it was closed to the menu bar icon. wxWidgets only brings back minimized windows.
+        virtual void MacReopenApp() wxOVERRIDE;
+#endif
+
     private:
         void ActivateOtherInstance();
         void WaitForPreviousInstance(long pid);
