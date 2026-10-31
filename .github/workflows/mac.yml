@@ -171,7 +171,7 @@ jobs:
           import Foundation
 
           // Prints the number of the biggest normal window of the program (or of the one with the
-          // given title), and lists them all
+          // given title, at any level: dialogs float above), and lists them all
           let args = CommandLine.arguments
           let owner = args.count > 1 ? args[1] : "HNTorrent"
           let title: String? = args.count > 2 ? args[2] : nil
@@ -188,7 +188,8 @@ jobs:
               let height = (bounds["Height"] as? NSNumber)?.doubleValue ?? 0
               let name = w[kCGWindowName as String] as? String ?? ""
               FileHandle.standardError.write("ventana \(number): capa \(layer), \(Int(width))x\(Int(height)) \(name)\n".data(using: .utf8)!)
-              if layer == 0 && (title == nil || name == title!) && width * height > bestArea {
+              let wanted = title == nil ? layer == 0 : name == title!
+              if wanted && width * height > bestArea {
                   best = number
                   bestArea = width * height
               }
