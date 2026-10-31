@@ -19,7 +19,12 @@ ApplicationOptionsConnection::ApplicationOptionsConnection(pt::UI::MainFrame* fr
 
 bool ApplicationOptionsConnection::OnExecute(const wxString&, const void *data, size_t size, wxIPCFormat format)
 {
+#ifdef _WIN32
     std::string textData = GetTextFromData(data, size, format);
+#else
+    // Clang has no implicit wxString to std::string; the JSON travels as UTF-8
+    std::string textData = GetTextFromData(data, size, format).utf8_string();
+#endif
 
     m_frame->GetEventHandler()->CallAfter([this, textData]()
         {

@@ -313,7 +313,12 @@ void Application::ActivateOtherInstance()
 
     if (conn)
     {
+#ifdef _WIN32
         conn->Execute(j.dump());
+#else
+        // Paths and links as UTF-8 (the other instance reads them back with utf8_string)
+        conn->Execute(wxString::FromUTF8(j.dump()));
+#endif
         conn->Disconnect();
     }
 }

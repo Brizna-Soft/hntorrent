@@ -167,7 +167,12 @@ PreferencesConnectionPage::PreferencesConnectionPage(wxWindow* parent, std::shar
             long sel = m_listenInterfaces->GetFirstSelected();
             if (sel < 0) { return; }
 
+#ifdef _WIN32
             std::string address = m_listenInterfaces->GetItemText(sel);
+#else
+            // Clang has no implicit wxString to std::string
+            std::string address = m_listenInterfaces->GetItemText(sel).ToStdString();
+#endif
             int port = std::atoi(m_listenInterfaces->GetItemText(sel, 1).c_str());
 
             ListenInterfaceDialog dlg(this, wxID_ANY, address, port);

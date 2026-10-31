@@ -80,6 +80,22 @@ bool PersistentTorrentListView::Restore()
         return false;
     }
 
+#ifndef __WXMSW__
+    // macOS: the native list deletes a column when it is removed, so the columns cannot be put
+    // back in the saved order. They keep their order; the hidden ones and the widths come back.
+    for (uint32_t i = 0; i < m_tlv->GetColumnCount(); i++)
+    {
+        auto col = m_tlv->GetColumn(i);
+        int64_t modelIndex = static_cast<int64_t>(col->GetModelColumn());
+
+        auto iter = std::find(models.begin(), models.end(), modelIndex);
+        if (iter == models.end()) { return false; }
+        auto saved = static_cast<size_t>(std::distance(models.begin(), iter));
+
+        col->SetHidden(hidden[saved]);
+        col->SetWidth(widths[saved]);
+    }
+#else
     std::vector<wxDataViewColumn*> cols;
     cols.resize(m_tlv->GetColumnCount());
 
@@ -109,6 +125,7 @@ bool PersistentTorrentListView::Restore()
         col->SetHidden(hidden[i]);
         col->SetWidth(widths[i]);
     }
+#endif
 
     int sortIndex = -1;
     bool sortAscending = false;
@@ -116,7 +133,15 @@ bool PersistentTorrentListView::Restore()
     if (RestoreValue("SortIndex", &sortIndex)
         && RestoreValue("SortAscending", &sortAscending))
     {
+#ifndef __WXMSW__
+        // A position outside the list would end the program on macOS
+        if (sortIndex >= 0 && sortIndex < static_cast<int>(m_tlv->GetColumnCount()))
+        {
+            m_tlv->GetColumn(sortIndex)->SetSortOrder(sortAscending);
+        }
+#else
         m_tlv->GetColumn(sortIndex)->SetSortOrder(sortAscending);
+#endif
     }
 
     return true;

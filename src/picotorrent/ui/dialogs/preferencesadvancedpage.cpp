@@ -18,6 +18,7 @@ struct Property
     std::function<void(Configuration*, wxPGProperty*)> set;
 };
 
+#ifdef _WIN32
 #define MAKE_PROP(t1, t2, t3, key, label, description) \
     { \
         label, \
@@ -28,6 +29,19 @@ struct Property
             [](Configuration* cfg, wxPGProperty* prop) { cfg->Set(key, prop->GetValue().Get ##t2()); } \
         } \
     }
+#else
+// The same, without pasting "<" to the type: only the Microsoft compiler lets that pass
+#define MAKE_PROP(t1, t2, t3, key, label, description) \
+    { \
+        label, \
+        { \
+            []() { return new wx ##t1 ##Property(label); },\
+            description, \
+            [](Configuration* cfg, wxPGProperty* prop) { prop->SetValue(cfg->Get<t3>(key).value()); }, \
+            [](Configuration* cfg, wxPGProperty* prop) { cfg->Set(key, prop->GetValue().Get ##t2()); } \
+        } \
+    }
+#endif
 
 static std::map<std::string, std::map<std::string, Property>> properties =
 {

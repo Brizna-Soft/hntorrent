@@ -1,6 +1,9 @@
 #include "pqltorrentfilter.hpp"
 
 #include <optional>
+#ifndef _WIN32
+#include <stdexcept>
+#endif
 
 #include <boost/log/trivial.hpp>
 
@@ -101,7 +104,12 @@ bool Compare(TLeft const& lhs, TRight const& rhs, Operator oper)
     case Operator::GTE: return lhs >= rhs;
     }
 
+#ifdef _WIN32
     throw std::exception("Unknown operator");
+#else
+    // std::exception takes a message only in the Microsoft library
+    throw std::runtime_error("Unknown operator");
+#endif
 }
 
 class FilterVisitor : public pt::PQL::QueryBaseVisitor

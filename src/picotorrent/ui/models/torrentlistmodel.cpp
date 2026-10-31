@@ -1,5 +1,9 @@
 #include "torrentlistmodel.hpp"
 
+#ifndef _WIN32
+#include <strings.h>
+#endif
+
 #include <boost/log/trivial.hpp>
 #include <fmt/format.h>
 #include <fmt/xchar.h>
@@ -126,7 +130,11 @@ int TorrentListModel::Compare(const wxDataViewItem& item1, const wxDataViewItem&
 
     auto nameSort = [&hashSort](bool ascending, TorrentStatus const& l, TorrentStatus const& r) -> int
     {
+#ifdef _WIN32
         auto compvalue = _strcmpi(l.name.c_str(),r.name.c_str());
+#else
+        auto compvalue = strcasecmp(l.name.c_str(), r.name.c_str());
+#endif
         if (compvalue < 0) { return ascending ? -1 : 1; }
         else if (compvalue == 0) { return hashSort(ascending, l, l); }
         else{ return ascending ? 1 : -1; }

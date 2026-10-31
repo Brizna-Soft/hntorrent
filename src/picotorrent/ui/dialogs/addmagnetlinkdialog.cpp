@@ -77,7 +77,12 @@ std::vector<libtorrent::add_torrent_params> AddMagnetLinkDialog::GetParams()
 
     while (tokenizer.HasMoreTokens())
     {
+#ifdef _WIN32
         std::string token = tokenizer.GetNextToken();
+#else
+        // Clang has no implicit wxString to std::string
+        std::string token = tokenizer.GetNextToken().ToStdString();
+#endif
         if (!IsMagnetLinkOrInfoHash(token)) { continue; }
 
         switch (token.size())

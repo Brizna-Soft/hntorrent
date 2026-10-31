@@ -23,6 +23,13 @@ namespace Models
         TorrentListView(wxWindow* parent, wxWindowID id, Models::TorrentListModel* model);
         virtual ~TorrentListView();
 
+#ifndef __WXMSW__
+        // The generic list of wxWidgets (the one on Windows) has these two. The native list of
+        // macOS has neither: it counts its columns by the position where they are shown.
+        wxDataViewColumn* GetColumnAt(unsigned int pos) const { return GetColumn(pos); }
+        int GetColumnIndex(const wxDataViewColumn* column) const { return GetColumnPosition(column); }
+#endif
+
     private:
         enum
         {
