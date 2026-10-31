@@ -101,6 +101,11 @@ Application::Application()
 #ifdef _WIN32
     SetProcessDPIAware();
 #endif
+#ifdef __WXOSX__
+    // The menu HNTorrent of macOS says "Hide ..." and "Quit ..." with this name; without it,
+    // wxWidgets makes one from the name of the program ("Hntorrent")
+    SetAppDisplayName("HNTorrent");
+#endif
 }
 
 Application::~Application()

@@ -750,8 +750,8 @@ wxMenuBar* MainFrame::CreateMainMenu()
 #endif
     helpMenu->Append(ptID_EVT_VIEW_HELP, i18n("view_help"));
 #ifdef __WXOSX__
-    // Also in the application menu of macOS
-    helpMenu->Append(wxID_ABOUT, i18n("amp_about"));
+    // It goes to the application menu of macOS, where it says "About HNTorrent"
+    helpMenu->Append(wxID_ABOUT, i18n("about_picotorrent"));
 #else
     helpMenu->Append(ptID_EVT_ABOUT, i18n("amp_about"));
 #endif
