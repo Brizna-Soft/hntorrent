@@ -5,6 +5,7 @@
 #include <wx/wx.h>
 #endif
 
+#include <atomic>
 #include <map>
 #include <memory>
 #include <string>
@@ -77,6 +78,16 @@ namespace Core
 }
 namespace BitTorrent
 {
+    // The files of a torrent removed «with files», for the Recycle Bin: its save path, its own files (full paths), its
+    // name (for the notice if some stay) and a flag to stop if it is added again or HNTorrent closes
+    struct RecycleJob
+    {
+        std::wstring base;
+        std::vector<std::wstring> files;
+        std::wstring name;
+        std::shared_ptr<std::atomic<bool>> cancel;
+    };
+
     class Session : public wxEvtHandler
     {
     public:
@@ -127,9 +138,12 @@ namespace BitTorrent
         std::unordered_set<libtorrent::info_hash_t> m_metadataRemoving;
         std::map<libtorrent::info_hash_t, libtorrent::torrent_handle> m_metadataSearches;
         // HNTorrent never deletes downloaded files for good: «remove with files» removes the torrent without deleting,
-        // and when libtorrent reports it removed, its files go to the Recycle Bin. Per torrent: its top-level files and
-        // folders inside its save path, and every one of its files (see session.cpp).
-        std::map<libtorrent::info_hash_t, std::pair<std::vector<std::wstring>, std::vector<std::wstring>>> m_toRecycleBin;
+        // and when libtorrent reports it removed, its own files go to the Recycle Bin one by one (see session.cpp)
+        RecycleJob RecycleJobFor(TorrentHandle* torrent);
+        void CancelRecycle(libtorrent::info_hash_t const& hash);
+        std::map<libtorrent::info_hash_t, RecycleJob> m_toRecycleBin;                              // waiting for the removal
+        std::map<libtorrent::info_hash_t, std::shared_ptr<std::atomic<bool>>> m_recycling;         // being sent now
+        std::vector<std::thread> m_recyclers;
     };
 }
 }

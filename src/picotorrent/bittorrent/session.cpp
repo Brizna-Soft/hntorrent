@@ -4,7 +4,10 @@
 #include <queue>
 
 #include <boost/log/trivial.hpp>
+#include <fmt/format.h>
+#include <fmt/xchar.h>
 #include <libtorrent/add_torrent_params.hpp>
+#include <libtorrent/download_priority.hpp>
 #include <libtorrent/alert_types.hpp>
 #include <libtorrent/entry.hpp>
 #include <libtorrent/extensions/smart_ban.hpp>
@@ -22,6 +25,8 @@
 #include <wx/wfstream.h>
 #include <wx/zipstrm.h>
 
+#include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <regex>
 #include <set>
@@ -42,6 +47,7 @@
 #include "torrenthandle.hpp"
 #include "torrentstatistics.hpp"
 #include "torrentstatus.hpp"
+#include "../ui/translator.hpp"
 
 namespace fs = std::filesystem;
 namespace lt = libtorrent;
@@ -381,6 +387,10 @@ Session::~Session()
 {
     if (m_filterLoader.joinable()) m_filterLoader.join();
 
+    // Pending «remove with files» stop when closing (what is left stays in place)
+    for (auto& [hash, cancel] : m_recycling) *cancel = true;
+    for (auto& t : m_recyclers) if (t.joinable()) t.join();
+
     m_session->set_alert_notify([] {});
     m_timer->Stop();
     m_resumeDataTimer->Stop();
@@ -431,6 +441,9 @@ void Session::AddMetadataSearch(std::vector<libtorrent::info_hash_t> const& hash
 
 void Session::AddTorrent(lt::add_torrent_params const& params)
 {
+    // If it was just removed «with files», that stops: its files stay for the new one
+    CancelRecycle(params.ti ? params.ti->info_hashes() : params.info_hashes);
+
     // If we are searching for metadata for this torrent, stop
     // that search and add this one instead.
 
@@ -439,8 +452,7 @@ void Session::AddTorrent(lt::add_torrent_params const& params)
         && m_metadataRemoving.count(res) == 0)
     {
         m_session->remove_torrent(
-            m_metadataSearches.at(res),
-            lt::session::delete_files);
+            m_metadataSearches.at(res));
         m_metadataRemoving.insert(res);
     }
 
@@ -471,8 +483,7 @@ void Session::RemoveMetadataSearch(std::vector<lt::info_hash_t> const& hashes)
             && m_metadataRemoving.count(res) == 0)
         {
             m_session->remove_torrent(
-                m_metadataSearches.at(res),
-                lt::session::delete_files);
+                m_metadataSearches.at(res));
             m_metadataRemoving.insert(res);
         }
     }
@@ -495,104 +506,160 @@ namespace
         return s;
     }
 
-    // What the torrent has inside its save path: its top-level files and folders (a single-file torrent: that file; a
-    // multi-file torrent: its folder) and every one of its files. Only plain names: never the save path itself, "." or
-    // "..". Nothing for a torrent without metadata (it has no files yet).
-    struct TorrentFiles
+    std::wstring Normal(std::wstring const& p)
     {
-        std::vector<std::wstring> tops;
-        std::vector<std::wstring> files;
-    };
-
-    TorrentFiles FilesOf(lt::torrent_handle const& th)
-    {
-        TorrentFiles r;
-        auto ti = th.torrent_file();
-        if (!ti) return r;
-        auto st = th.status(lt::torrent_handle::query_save_path);
-        fs::path base(Wide(st.save_path));
-        if (base.empty()) return r;
-        auto const& files = ti->files();
-        std::set<std::wstring> seen;
-        for (lt::file_index_t i : files.file_range())
-        {
-            if (files.pad_file_at(i)) continue;
-            std::string p = files.file_path(i);
-            std::string first = p.substr(0, p.find_first_of("\\/"));
-            if (first.empty() || first == "." || first == ".." || first.find(':') != std::string::npos
-                || p.find("..") != std::string::npos)
-                continue;
-            r.files.push_back((base / Wide(p)).lexically_normal().wstring());
-            std::wstring top = (base / Wide(first)).wstring();
-            if (seen.insert(Lower(top)).second) r.tops.push_back(top);
-        }
-        return r;
+        std::wstring n = fs::path(p).lexically_normal().wstring();
+        while (n.size() > 3 && (n.back() == L'\\' || n.back() == L'/')) n.pop_back();
+        return n;
     }
 
-    // A folder goes whole only if everything in it is a file of this torrent; if it also has other files (from another
-    // torrent with the same folder, or the person's own), only this torrent's files go and the folder stays
-    std::vector<std::wstring> WhatToRecycle(TorrentFiles const& t)
+    // Right before touching a file: it must be inside the save path, and the save path, every folder on the way and the
+    // file itself must be real (no link or junction that could lead somewhere else), and it must be a plain file.
+    bool InsideWithoutLinks(std::wstring const& base, std::wstring const& file)
     {
-        std::set<std::wstring> own;
-        for (auto const& f : t.files) own.insert(Lower(f));
-        std::vector<std::wstring> r;
-        for (auto const& top : t.tops)
+        std::wstring b = Normal(base), p = Normal(file);
+        std::wstring lb = Lower(b), lp = Lower(p);
+        if (lp.size() <= lb.size() + 1 || lp.compare(0, lb.size(), lb) != 0 || lp[lb.size()] != L'\\') return false;
+        DWORD ab = GetFileAttributesW(b.c_str());
+        if (ab == INVALID_FILE_ATTRIBUTES || !(ab & FILE_ATTRIBUTE_DIRECTORY) || (ab & FILE_ATTRIBUTE_REPARSE_POINT)) return false;
+        size_t pos = b.size() + 1;
+        for (;;)
         {
-            std::error_code ec;
-            if (!fs::is_directory(fs::symlink_status(top, ec)))
-            {
-                r.push_back(top);
-                continue;
-            }
-            bool onlyOwn = true;
-            for (auto it = fs::recursive_directory_iterator(top, fs::directory_options::skip_permission_denied, ec);
-                 !ec && it != fs::recursive_directory_iterator(); it.increment(ec))
-            {
-                auto s = it->symlink_status(ec);
-                if (fs::is_directory(s)) continue;
-                if (!fs::is_regular_file(s) || !own.count(Lower(it->path().lexically_normal().wstring())))
-                {
-                    onlyOwn = false;
-                    break;
-                }
-            }
-            if (ec) onlyOwn = false;
-            if (onlyOwn) r.push_back(top);
-            else
-            {
-                std::wstring prefix = Lower(top) + L"\\";
-                for (auto const& f : t.files)
-                {
-                    if (Lower(f).rfind(prefix, 0) == 0) r.push_back(f);
-                }
-            }
+            size_t next = p.find(L'\\', pos);
+            DWORD a = GetFileAttributesW(p.substr(0, next).c_str());
+            if (a == INVALID_FILE_ATTRIBUTES || (a & FILE_ATTRIBUTE_REPARSE_POINT)) return false;
+            if (next == std::wstring::npos) return (a & FILE_ATTRIBUTE_DIRECTORY) == 0;
+            if (!(a & FILE_ATTRIBUTE_DIRECTORY)) return false;
+            pos = next + 1;
         }
-        return r;
     }
 
-    // To the Recycle Bin, like Atarraya and Jícaro: no extra question (it was asked), no error windows, and if a disk has
-    // no Recycle Bin (some USB sticks), Windows asks before deleting for good instead of doing it silently.
-    // libtorrent may still be closing the files for a moment, so each one is tried a few times.
-    void SendToRecycleBin(TorrentFiles torrent)
+    // One file to the Recycle Bin, like Atarraya and Jícaro: no extra question (it was asked), no error windows, only that
+    // file (FOF_NO_CONNECTED_ELEMENTS: never the «_files» folder Windows links to a saved web page), and if it can't go to
+    // the Recycle Bin (some USB sticks, or too big), Windows asks before deleting it for good instead of doing it silently.
+    bool RecycleOne(std::wstring const& file, bool& refused)
     {
-        for (auto const& path : WhatToRecycle(torrent))
+        std::wstring doubleNull = file + L'\0';
+        SHFILEOPSTRUCTW op = {};
+        op.wFunc = FO_DELETE;
+        op.pFrom = doubleNull.c_str();
+        op.fFlags = FOF_ALLOWUNDO | FOF_NOCONFIRMATION | FOF_SILENT | FOF_NOERRORUI | FOF_WANTNUKEWARNING
+            | FOF_NO_CONNECTED_ELEMENTS;
+        int r = SHFileOperationW(&op);
+        bool gone = GetFileAttributesW(file.c_str()) == INVALID_FILE_ATTRIBUTES;
+        refused = op.fAnyOperationsAborted && !gone;
+        return r == 0 && gone;
+    }
+
+    // The worker: each file of the torrent (only its own, see RecycleJobFor) goes to the Recycle Bin, checked again right
+    // before each try. Then the folders of the torrent that were left empty are removed (RemoveDirectory only removes
+    // empty folders). It stops at once if the torrent is added again or HNTorrent closes: what is left stays in place.
+    void RecycleFiles(pt::BitTorrent::RecycleJob job, wxEvtHandler* parent)
+    {
+        size_t left = 0;
+        std::set<std::wstring> folders;
+        std::wstring lb = Lower(Normal(job.base));
+        for (int i = 0; i < 10 && !*job.cancel; i++) std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        for (auto const& file : job.files)
         {
-            for (int attempt = 0; attempt < 10; attempt++)
+            if (*job.cancel) return;
+            if (GetFileAttributesW(file.c_str()) == INVALID_FILE_ATTRIBUTES) continue;   // never downloaded, or already gone
+            bool done = false, refused = false;
+            for (int attempt = 0; attempt < 10 && !done && !refused && !*job.cancel; attempt++)
             {
-                if (GetFileAttributesW(path.c_str()) == INVALID_FILE_ATTRIBUTES) break;
-                std::wstring doubleNull = path + L'\0';
-                SHFILEOPSTRUCTW op = {};
-                op.wFunc = FO_DELETE;
-                op.pFrom = doubleNull.c_str();
-                op.fFlags = FOF_ALLOWUNDO | FOF_NOCONFIRMATION | FOF_SILENT | FOF_NOERRORUI | FOF_WANTNUKEWARNING;
-                int r = SHFileOperationW(&op);
-                if (op.fAnyOperationsAborted) break;   // the person said no to deleting for good
-                if (r == 0) break;
-                std::this_thread::sleep_for(std::chrono::milliseconds(500));
+                if (!InsideWithoutLinks(job.base, file)) break;
+                done = RecycleOne(file, refused);
+                if (!done && !refused) std::this_thread::sleep_for(std::chrono::milliseconds(500));
             }
-            BOOST_LOG_TRIVIAL(info) << "Files of a removed torrent " << (GetFileAttributesW(path.c_str()) == INVALID_FILE_ATTRIBUTES
-                ? "sent to the Recycle Bin" : "could not be sent to the Recycle Bin (they stay in place)");
+            if (!done)
+            {
+                left++;
+                continue;
+            }
+            for (fs::path d = fs::path(file).parent_path(); ; d = d.parent_path())
+            {
+                std::wstring ld = Lower(Normal(d.wstring()));
+                if (ld.size() <= lb.size() || ld.compare(0, lb.size(), lb) != 0) break;
+                folders.insert(Normal(d.wstring()));
+            }
         }
+        std::vector<std::wstring> deepestFirst(folders.begin(), folders.end());
+        std::sort(deepestFirst.begin(), deepestFirst.end(), [](auto const& a, auto const& b) { return a.size() > b.size(); });
+        for (auto const& d : deepestFirst)
+        {
+            if (*job.cancel) break;
+            DWORD a = GetFileAttributesW(d.c_str());
+            if (a != INVALID_FILE_ATTRIBUTES && (a & FILE_ATTRIBUTE_DIRECTORY) && !(a & FILE_ATTRIBUTE_REPARSE_POINT))
+                RemoveDirectoryW(d.c_str());
+        }
+        BOOST_LOG_TRIVIAL(info) << "Files of a removed torrent: " << (job.files.size() - left) << " checked or sent to the Recycle Bin, "
+            << left << " left in place";
+        if (left > 0 && parent)
+        {
+            std::wstring name = job.name;
+            parent->CallAfter([name, left]() {
+                wxMessageBox(wxString(fmt::format(pt::UI::Translator::GetInstance().Translate("recycle_failed_s"), left, name)),
+                    "HNTorrent", wxOK | wxICON_WARNING);
+            });
+        }
+    }
+}
+
+// What «remove with files» may send to the Recycle Bin: only the files of this torrent that it downloads (not the ones
+// marked «don't download») and that no other torrent in the list uses. Never a whole folder.
+pt::BitTorrent::RecycleJob Session::RecycleJobFor(pt::BitTorrent::TorrentHandle* torrent)
+{
+    RecycleJob job;
+    job.cancel = std::make_shared<std::atomic<bool>>(false);
+    lt::torrent_handle th = torrent->WrappedHandle();
+    auto ti = th.torrent_file();
+    if (!ti) return job;
+    auto st = th.status(lt::torrent_handle::query_save_path | lt::torrent_handle::query_name);
+    job.base = Wide(st.save_path);
+    job.name = Wide(st.name);
+    if (job.base.empty()) return job;
+
+    std::set<std::wstring> others;
+    for (auto const& [hash, other] : m_torrents)
+    {
+        if (other == torrent) continue;
+        lt::torrent_handle oh = other->WrappedHandle();
+        auto oti = oh.torrent_file();
+        if (!oti) continue;
+        fs::path ob(Wide(oh.status(lt::torrent_handle::query_save_path).save_path));
+        auto const& ofs = oti->files();
+        for (lt::file_index_t i : ofs.file_range())
+        {
+            if (!ofs.pad_file_at(i)) others.insert(Lower(Normal((ob / Wide(ofs.file_path(i))).wstring())));
+        }
+    }
+
+    auto const& files = ti->files();
+    auto priorities = th.get_file_priorities();
+    fs::path base(job.base);
+    for (lt::file_index_t i : files.file_range())
+    {
+        if (files.pad_file_at(i)) continue;
+        auto index = static_cast<std::size_t>(static_cast<int>(i));
+        if (index < priorities.size() && priorities[index] == lt::dont_download) continue;
+        std::string p = files.file_path(i);
+        if (p.empty() || p.find("..") != std::string::npos || p.find(':') != std::string::npos) continue;
+        std::wstring full = Normal((base / Wide(p)).wstring());
+        if (others.count(Lower(full))) continue;
+        job.files.push_back(full);
+    }
+    return job;
+}
+
+// The same torrent added again (or HNTorrent closing): its pending «remove with files» stops, and its files stay
+void Session::CancelRecycle(lt::info_hash_t const& hash)
+{
+    m_toRecycleBin.erase(hash);
+    auto running = m_recycling.find(hash);
+    if (running != m_recycling.end())
+    {
+        *running->second = true;
+        m_recycling.erase(running);
     }
 }
 
@@ -604,9 +671,8 @@ void Session::RemoveTorrent(pt::BitTorrent::TorrentHandle* torrent, lt::remove_f
 
     if (withFiles)
     {
-        // Never for good: the files are kept by libtorrent and go to the Recycle Bin once it removed the torrent
-        TorrentFiles f = FilesOf(torrent->WrappedHandle());
-        m_toRecycleBin[torrent->InfoHash()] = { std::move(f.tops), std::move(f.files) };
+        // Never for good: libtorrent keeps the files, and they go to the Recycle Bin once it removed the torrent
+        m_toRecycleBin[torrent->InfoHash()] = RecycleJobFor(torrent);
         flags &= ~lt::session::delete_files;
     }
 
@@ -766,7 +832,7 @@ void Session::OnAlert()
                 wxPostEvent(this, evt);
                 wxPostEvent(m_parent, evt);
 
-                m_session->remove_torrent(mra->handle, lt::session::delete_files);
+                m_session->remove_torrent(mra->handle);
                 m_metadataRemoving.insert(res);
             }
             else
@@ -979,9 +1045,13 @@ void Session::OnAlert()
             auto recycle = m_toRecycleBin.find(tra->info_hashes);
             if (recycle != m_toRecycleBin.end())
             {
-                TorrentFiles files{ std::move(recycle->second.first), std::move(recycle->second.second) };
+                RecycleJob job = std::move(recycle->second);
                 m_toRecycleBin.erase(recycle);
-                if (!files.tops.empty()) std::thread(SendToRecycleBin, std::move(files)).detach();
+                if (!job.files.empty())
+                {
+                    m_recycling[tra->info_hashes] = job.cancel;
+                    m_recyclers.emplace_back(RecycleFiles, std::move(job), m_parent);
+                }
             }
 
             break;

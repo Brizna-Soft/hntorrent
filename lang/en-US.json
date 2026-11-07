@@ -1,4 +1,5 @@
 {
+    "recycle_failed_s": "Could not send {0} file(s) of \"{1}\" to the Recycle Bin: they are still in their folder. If you no longer want them, you can delete them yourself in File Explorer.",
     "update_restore_failed_s": "HNTorrent could not be updated ({0}) and the previous version could not be fully restored. The previous files are next to HNTorrent.exe with the .anterior ending: remove that ending to get them back.",
     "confirm_remove_yes": "Remove from list",
     "confirm_remove_files_yes": "Remove and send to the Recycle Bin",
@@ -109,7 +110,7 @@
     "show_on_github": "Show on GitHub",
     "new_version_available": "A newer version of HNTorrent is available.",
     "ignore_update": "Ignore this update",
-    "confirm_remove_description": "The files of this torrent will go to the Recycle Bin, where you can restore them. If the disk has no Recycle Bin (some USB sticks), Windows will ask you before deleting them for good.",
+    "confirm_remove_description": "The files of this torrent will be sent to the Recycle Bin, where you can restore them. If Windows cannot put them there (some USB sticks, or very big files), it will ask you before deleting them for good. Files used by another torrent in the list are not touched.",
     "confirm_remove": "Confirm remove",
     "select_destination": "Select destination",
     "state_checking_resume_data": "Checking resume data",
