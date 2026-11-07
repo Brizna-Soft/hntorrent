@@ -26,6 +26,8 @@ on:
 
 permissions:
   contents: write
+  id-token: write       # para la atestación de origen de los .zip
+  attestations: write
 
 concurrency:
   group: actualizaciones
@@ -136,6 +138,14 @@ jobs:
             .\empaquetar.ps1 -Salida "$env:RUNNER_TEMP\paquete" -ClavePrivada $clave
           }
           finally { Remove-Item $clave -Force -ErrorAction SilentlyContinue }
+
+      # Prueba pública de que los .zip los armó GitHub con este código (además de la firma Ed25519). Se comprueba con:
+      #   gh attestation verify <archivo.zip> --repo Brizna-Soft/hntorrent
+      - name: Atestación de origen de los .zip
+        if: steps.buscar.outputs.hay == 'si'
+        uses: actions/attest-build-provenance@v4
+        with:
+          subject-path: ${{ runner.temp }}/paquete/*.zip
 
       - name: Guardar el cambio y publicar en este repositorio
         if: steps.buscar.outputs.hay == 'si'
