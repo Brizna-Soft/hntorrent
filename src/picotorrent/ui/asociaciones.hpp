@@ -85,22 +85,23 @@ namespace pt::UI::Asociaciones
     }
 
     // ¿Queda algo de lo que anota HNTorrent? (aunque falte una parte: así «Dejar de ofrecerlo» sirve para reintentar)
+    // Solo cuenta como ausente lo que Windows dice que no existe: ante cualquier otro error (por ejemplo, acceso
+    // denegado) se supone que sigue ahí, para no quitar la forma de reintentar.
     inline bool HayAlgoAnotado()
     {
-        HKEY clave = nullptr;
+        auto noEsta = [](LSTATUS r) { return r == ERROR_FILE_NOT_FOUND || r == ERROR_PATH_NOT_FOUND; };
         for (const wchar_t* c : { ProgIdTorrent, ProgIdMagnet, Capacidades })
         {
-            if (RegOpenKeyExW(HKEY_CURRENT_USER, c, 0, KEY_READ, &clave) == ERROR_SUCCESS)
-            {
-                RegCloseKey(clave);
-                return true;
-            }
+            HKEY clave = nullptr;
+            LSTATUS r = RegOpenKeyExW(HKEY_CURRENT_USER, c, 0, KEY_READ, &clave);
+            if (r == ERROR_SUCCESS) { RegCloseKey(clave); }
+            if (!noEsta(r)) { return true; }
         }
-        if (RegGetValueW(HKEY_CURRENT_USER, AbrirConTorrent, L"HNTorrent.torrent", RRF_RT_ANY, nullptr, nullptr, nullptr) == ERROR_SUCCESS)
+        if (!noEsta(RegGetValueW(HKEY_CURRENT_USER, AbrirConTorrent, L"HNTorrent.torrent", RRF_RT_ANY, nullptr, nullptr, nullptr)))
         {
             return true;
         }
-        return RegGetValueW(HKEY_CURRENT_USER, Registradas, L"HNTorrent", RRF_RT_ANY, nullptr, nullptr, nullptr) == ERROR_SUCCESS;
+        return !noEsta(RegGetValueW(HKEY_CURRENT_USER, Registradas, L"HNTorrent", RRF_RT_ANY, nullptr, nullptr, nullptr));
     }
 
     // Borra solo lo que anotó HNTorrent. Si Windows ya lo tenía elegido para abrirlos, deja de ofrecerlo.
