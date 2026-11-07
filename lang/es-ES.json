@@ -1,4 +1,5 @@
 {
+    "open_with_hntorrent_not_removed": "No se pudo quitar todo de Windows. Cierra la ventana de Configuración y vuelve a pulsar «Dejar de ofrecerlo»; si sigue pasando, avísanos en Ayuda > Reportar un problema.",
     "open_with_hntorrent_confirm": "HNTorrent va a anotarse en Windows (solo para tu usuario) como un programa que abre los enlaces magnet y los archivos .torrent. No cambia nada de otros programas y no pide permiso de administrador.\n\nDespués se abre Configuración: ahí eliges HNTorrent para «magnet» y para «.torrent». Lo puedes quitar con «Dejar de ofrecerlo».",
     "hntorrent_app_description": "Programa gratis de torrents de Brizna Soft, sin publicidad.",
     "open_with_hntorrent": "Abrir con HNTorrent",

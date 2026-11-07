@@ -142,7 +142,7 @@ PreferencesGeneralPage::PreferencesGeneralPage(wxWindow* parent, std::shared_ptr
     openText->Wrap(FromDIP(380));
     auto openButton = new wxButton(openSizer->GetStaticBox(), wxID_ANY, i18n("open_with_hntorrent_button"));
     auto stopButton = new wxButton(openSizer->GetStaticBox(), wxID_ANY, i18n("open_with_hntorrent_stop"));
-    stopButton->Enable(Asociaciones::EstaAnotado());
+    stopButton->Enable(Asociaciones::HayAlgoAnotado());
     auto openButtons = new wxBoxSizer(wxHORIZONTAL);
     openButtons->Add(openButton, 0, wxRIGHT, FromDIP(7));
     openButtons->Add(stopButton, 0);
@@ -156,7 +156,7 @@ PreferencesGeneralPage::PreferencesGeneralPage(wxWindow* parent, std::shared_ptr
             if (ask.ShowModal() != wxID_YES) { return; }
 
             bool ok = Asociaciones::Anotar(i18n("torrent_file_description"), i18n("magnet_link_description"), i18n("hntorrent_app_description"));
-            stopButton->Enable(Asociaciones::EstaAnotado());
+            stopButton->Enable(Asociaciones::HayAlgoAnotado());
             wxMessageDialog done(this, ok ? i18n("open_with_hntorrent_done") : i18n("open_with_hntorrent_failed"),
                 i18n("open_with_hntorrent"), wxOK | (ok ? wxICON_INFORMATION : wxICON_WARNING));
             done.SetOKLabel(wxString(i18n("ok")));
@@ -166,9 +166,10 @@ PreferencesGeneralPage::PreferencesGeneralPage(wxWindow* parent, std::shared_ptr
 
     stopButton->Bind(wxEVT_BUTTON, [this, stopButton](wxCommandEvent&)
         {
-            Asociaciones::Quitar();
-            stopButton->Enable(Asociaciones::EstaAnotado());
-            wxMessageDialog done(this, i18n("open_with_hntorrent_removed"), i18n("open_with_hntorrent"), wxOK | wxICON_INFORMATION);
+            bool removed = Asociaciones::Quitar();
+            stopButton->Enable(Asociaciones::HayAlgoAnotado());
+            wxMessageDialog done(this, removed ? i18n("open_with_hntorrent_removed") : i18n("open_with_hntorrent_not_removed"),
+                i18n("open_with_hntorrent"), wxOK | (removed ? wxICON_INFORMATION : wxICON_WARNING));
             done.SetOKLabel(wxString(i18n("ok")));
             done.ShowModal();
         });

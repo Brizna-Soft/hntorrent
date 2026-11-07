@@ -84,15 +84,42 @@ namespace pt::UI::Asociaciones
         return ok;
     }
 
-    // Borra solo lo que anotó HNTorrent. Si Windows ya lo tenía elegido para abrirlos, deja de ofrecerlo.
-    inline void Quitar()
+    // ¿Queda algo de lo que anota HNTorrent? (aunque falte una parte: así «Dejar de ofrecerlo» sirve para reintentar)
+    inline bool HayAlgoAnotado()
     {
-        RegDeleteTreeW(HKEY_CURRENT_USER, ProgIdTorrent);
-        RegDeleteTreeW(HKEY_CURRENT_USER, ProgIdMagnet);
-        RegDeleteKeyValueW(HKEY_CURRENT_USER, AbrirConTorrent, L"HNTorrent.torrent");
-        RegDeleteTreeW(HKEY_CURRENT_USER, Capacidades);
-        RegDeleteKeyValueW(HKEY_CURRENT_USER, Registradas, L"HNTorrent");
+        HKEY clave = nullptr;
+        for (const wchar_t* c : { ProgIdTorrent, ProgIdMagnet, Capacidades })
+        {
+            if (RegOpenKeyExW(HKEY_CURRENT_USER, c, 0, KEY_READ, &clave) == ERROR_SUCCESS)
+            {
+                RegCloseKey(clave);
+                return true;
+            }
+        }
+        if (RegGetValueW(HKEY_CURRENT_USER, AbrirConTorrent, L"HNTorrent.torrent", RRF_RT_ANY, nullptr, nullptr, nullptr) == ERROR_SUCCESS)
+        {
+            return true;
+        }
+        return RegGetValueW(HKEY_CURRENT_USER, Registradas, L"HNTorrent", RRF_RT_ANY, nullptr, nullptr, nullptr) == ERROR_SUCCESS;
+    }
+
+    // Borra solo lo que anotó HNTorrent. Si Windows ya lo tenía elegido para abrirlos, deja de ofrecerlo.
+    // Devuelve false si algo quedó sin borrar (lo que ya no estaba no cuenta como falla).
+    inline bool Quitar()
+    {
+        auto bien = [](LSTATUS r) { return r == ERROR_SUCCESS || r == ERROR_FILE_NOT_FOUND || r == ERROR_PATH_NOT_FOUND; };
+        bool ok = bien(RegDeleteTreeW(HKEY_CURRENT_USER, ProgIdTorrent));
+        ok = bien(RegDeleteTreeW(HKEY_CURRENT_USER, ProgIdMagnet)) && ok;
+        ok = bien(RegDeleteKeyValueW(HKEY_CURRENT_USER, AbrirConTorrent, L"HNTorrent.torrent")) && ok;
+        ok = bien(RegDeleteTreeW(HKEY_CURRENT_USER, Capacidades)) && ok;
+        ok = bien(RegDeleteKeyValueW(HKEY_CURRENT_USER, Registradas, L"HNTorrent")) && ok;
+        // RegDeleteTree deja la clave vacía si no puede borrarla: se intenta quitar también la clave misma
+        for (const wchar_t* c : { ProgIdTorrent, ProgIdMagnet, Capacidades })
+        {
+            ok = bien(RegDeleteKeyW(HKEY_CURRENT_USER, c)) && ok;
+        }
         SHChangeNotify(SHCNE_ASSOCCHANGED, SHCNF_IDLIST, nullptr, nullptr);
+        return ok && !HayAlgoAnotado();
     }
 
     // Abre Configuración en la página de HNTorrent, donde la persona elige qué abre con él
