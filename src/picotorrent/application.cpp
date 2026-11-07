@@ -1,5 +1,8 @@
 #include "application.hpp"
 
+#include <Windows.h>
+#include <shellapi.h>
+
 #include <boost/log/trivial.hpp>
 #include <fmt/format.h>
 #include <fmt/xchar.h>
@@ -69,6 +72,25 @@ namespace
 
         return true;
     }
+
+    // Is there a «--wait-for-pid=…» on the command line? (read before wx parses it)
+    bool StartedWithWaitForPid()
+    {
+        int count = 0;
+        LPWSTR* args = CommandLineToArgvW(GetCommandLineW(), &count);
+
+        if (args == nullptr) { return false; }
+
+        bool found = false;
+
+        for (int i = 1; i < count && !found; i++)
+        {
+            found = wcsncmp(args[i], L"--wait-for-pid", 14) == 0;
+        }
+
+        LocalFree(args);
+        return found;
+    }
 }
 
 Application::Application()
@@ -78,7 +100,13 @@ Application::Application()
     // single-instance marker is created, so they can never make HNTorrent think another copy is open
     UpdateChecker::RunUpdaterModes();
 
-    m_singleInstance = std::make_unique<wxSingleInstanceChecker>(SingleInstanceName);
+    // Started by an update or a rename (--wait-for-pid): the single-instance marker is created in OnInit, only once
+    // the previous copy really ended. Otherwise a copy opened by hand during the handover could make both close.
+    if (!StartedWithWaitForPid())
+    {
+        m_singleInstance = std::make_unique<wxSingleInstanceChecker>(SingleInstanceName);
+    }
+
     SetProcessDPIAware();
 }
 
@@ -134,9 +162,21 @@ bool Application::OnInit()
     {
         WaitForPreviousInstance(m_options.pid);
 
-        // The checker was created while the previous instance was still running, so it
-        // would keep reporting it (this broke the restart after an update)
-        m_singleInstance.reset();
+        // Only now, with the previous copy gone, the marker is created. A copy opened by hand during the handover
+        // finds the marker of the closing one and ends on its own: it gets a few seconds to do so.
+        for (int attempt = 0; attempt < 20; attempt++)
+        {
+            m_singleInstance = std::make_unique<wxSingleInstanceChecker>(SingleInstanceName);
+
+            if (!m_singleInstance->IsAnotherRunning()) { break; }
+
+            m_singleInstance.reset();
+            Sleep(500);
+        }
+    }
+
+    if (!m_singleInstance)
+    {
         m_singleInstance = std::make_unique<wxSingleInstanceChecker>(SingleInstanceName);
     }
 
@@ -327,13 +367,9 @@ void Application::WaitForPreviousInstance(long pid)
 {
     HANDLE hProc = OpenProcess(SYNCHRONIZE, FALSE, pid);
     if (hProc == NULL) { return; }
-    // After an update the old version may need a while to save the state of every torrent. It waits until it really
-    // ended (up to 15 minutes): starting before that would find it still open, and both would end up closed.
-    DWORD result = WaitForSingleObject(hProc, 15 * 60 * 1000);
+    // After an update the old version may need a while to save the state of every torrent. This waits until it
+    // really ended, however long it takes: starting before that would find it still open and both would end closed.
+    // If it ever hangs, ending it in the Task Manager lets this one start at once.
+    WaitForSingleObject(hProc, INFINITE);
     CloseHandle(hProc);
-
-    if (result != WAIT_OBJECT_0)
-    {
-        BOOST_LOG_TRIVIAL(warning) << "The previous instance (" << pid << ") did not end in time";
-    }
 }
