@@ -162,17 +162,7 @@ bool Application::OnInit()
     {
         WaitForPreviousInstance(m_options.pid);
 
-        // Only now, with the previous copy gone, the marker is created. A copy opened by hand during the handover
-        // finds the marker of the closing one and ends on its own: it gets a few seconds to do so.
-        for (int attempt = 0; attempt < 20; attempt++)
-        {
-            m_singleInstance = std::make_unique<wxSingleInstanceChecker>(SingleInstanceName);
-
-            if (!m_singleInstance->IsAnotherRunning()) { break; }
-
-            m_singleInstance.reset();
-            Sleep(500);
-        }
+        // Only now, with the previous copy gone, the marker is created
     }
 
     if (!m_singleInstance)
@@ -180,10 +170,17 @@ bool Application::OnInit()
         m_singleInstance = std::make_unique<wxSingleInstanceChecker>(SingleInstanceName);
     }
 
-    if (m_singleInstance->IsAnotherRunning())
+    // Another copy is open: it receives the files and links and this one ends. If it does not answer (it may be
+    // closing, or still starting), this one keeps trying until an open copy answers or the other one is gone and
+    // this one takes its place. So one copy always stays open, never two (for up to 2 minutes; after that, the
+    // other copy is still there, so ending this one leaves HNTorrent open).
+    for (int attempt = 0; m_singleInstance->IsAnotherRunning(); attempt++)
     {
-        ActivateOtherInstance();
-        return false;
+        if (ActivateOtherInstance() || attempt >= 240) { return false; }
+
+        m_singleInstance.reset();
+        Sleep(500);
+        m_singleInstance = std::make_unique<wxSingleInstanceChecker>(SingleInstanceName);
     }
 
     // Right after an update: if this new version cannot finish starting (an error below, or it crashes), it puts
@@ -342,7 +339,7 @@ void Application::OnInitCmdLine(wxCmdLineParser& parser)
     parser.SetSwitchChars("-");
 }
 
-void Application::ActivateOtherInstance()
+bool Application::ActivateOtherInstance()
 {
     json j;
     j["files"] = m_options.files;
@@ -356,11 +353,14 @@ void Application::ActivateOtherInstance()
         "HNTorrent",
         "ApplicationOptions");
 
-    if (conn)
+    if (!conn)
     {
-        conn->Execute(j.dump());
-        conn->Disconnect();
+        return false;
     }
+
+    bool sent = conn->Execute(j.dump());
+    conn->Disconnect();
+    return sent;
 }
 
 void Application::WaitForPreviousInstance(long pid)

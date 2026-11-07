@@ -29,7 +29,7 @@ namespace API
         virtual bool OnInit() wxOVERRIDE;
         virtual void OnInitCmdLine(wxCmdLineParser&) wxOVERRIDE;
     private:
-        void ActivateOtherInstance();
+        bool ActivateOtherInstance();   // true if an open copy received the files and links
         void WaitForPreviousInstance(long pid);
 
         pt::CommandLineOptions m_options;
