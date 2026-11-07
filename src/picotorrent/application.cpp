@@ -171,12 +171,12 @@ bool Application::OnInit()
     }
 
     // Another copy is open: it receives the files and links and this one ends. If it does not answer (it may be
-    // closing, or still starting), this one keeps trying until an open copy answers or the other one is gone and
-    // this one takes its place. So one copy always stays open, never two (for up to 2 minutes; after that, the
-    // other copy is still there, so ending this one leaves HNTorrent open).
-    for (int attempt = 0; m_singleInstance->IsAnotherRunning(); attempt++)
+    // closing, or still starting), this one keeps trying, with no time limit, until an open copy answers or the other
+    // one is gone and this one takes its place. So one copy always stays open and never two. While it waits it shows
+    // nothing and uses almost nothing; if the other copy hangs, ending that one lets this one start.
+    while (m_singleInstance->IsAnotherRunning())
     {
-        if (ActivateOtherInstance() || attempt >= 240) { return false; }
+        if (ActivateOtherInstance()) { return false; }
 
         m_singleInstance.reset();
         Sleep(500);
