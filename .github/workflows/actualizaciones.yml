@@ -1,6 +1,9 @@
 # Cada lunes revisa si salió una libtorrent 2.0.x nueva o una versión nueva de vcpkg (Boost, OpenSSL y demás).
-# Si hay algo nuevo: lo aplica, sube el número de versión (version.txt), compila, firma, guarda el cambio
-# en la rama version-propia y publica la versión:
+# El lunes SOLO AVISA (decisión de Sergio, 07/11/2026): si hay algo nuevo, la ejecución termina en rojo con el
+# aviso «Hay una versión nueva para revisar» (GitHub manda un correo) y no compila, no guarda nada ni publica.
+# Publicar es solo a mano (Actions > Revisar actualizaciones > Run workflow), con el OK de Sergio. Entonces, si hay
+# algo nuevo (o se marca «forzar»): lo aplica, sube el número de versión (version.txt), compila, firma, guarda el
+# cambio en la rama version-propia y publica la versión:
 #   - como Release en este repositorio (es público desde el 28/10/2026), y
 #   - en el repositorio público Brizna-Soft/hntorrent-descargas, de donde la baja el actualizador de HNTorrent
 #     (y el de Brizna 0.26, el nombre de antes, que así pasa solo a HNTorrent; ver empaquetar.ps1). Ese
@@ -69,6 +72,17 @@ jobs:
             $tag = (Invoke-RestMethod -Uri 'https://api.github.com/repos/microsoft/vcpkg/releases/latest' -Headers $api).tag_name
             $cambios += "vcpkg $tag (Boost, OpenSSL y demas)"
           }
+          # El lunes (schedule) solo se avisa: nunca se publica sin que Sergio lo pida a mano
+          if ($env:GITHUB_EVENT_NAME -ne 'workflow_dispatch') {
+            'hay=no' | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+            if ($cambios.Count -gt 0) {
+              'aviso=si' | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+              "cambios=$($cambios -join '; ')" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+            } else {
+              Write-Host 'Todo al dia: no hay versiones nuevas.'
+            }
+            exit 0
+          }
           if ($cambios.Count -eq 0 -and ($env:FORZAR -eq 'true' -or $env:VERSION_PEDIDA)) { $cambios += 'publicacion manual' }
           if ($cambios.Count -eq 0) {
             'hay=no' | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
@@ -89,6 +103,18 @@ jobs:
           "version=$nueva" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
           "cambios=$($cambios -join '; ')" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
           Write-Host "Hay cambios: $($cambios -join '; ') -> HNTorrent $nueva"
+
+      # Solo el lunes, si hay algo nuevo: deja el aviso y termina en rojo para que llegue el correo. No publica nada.
+      - name: Avisar que hay una versión nueva (sin publicar)
+        if: steps.buscar.outputs.aviso == 'si'
+        shell: powershell
+        env:
+          CAMBIOS: ${{ steps.buscar.outputs.cambios }}
+        run: |
+          $texto = "Hay una version nueva para revisar: $env:CAMBIOS. No se publico nada. Para publicarla, con el OK de Sergio: Actions > Revisar actualizaciones > Run workflow."
+          "## Hay una version nueva para revisar`n`n$texto" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
+          Write-Host "::warning title=Hay una version nueva para revisar::$texto"
+          exit 1
 
       - name: Traer el resto del código
         if: steps.buscar.outputs.hay == 'si'
@@ -111,7 +137,7 @@ jobs:
           restore-keys: vcpkg-bin-
 
       - name: Compilar la versión nueva
-        if: steps.buscar.outputs.hay == 'si'
+        if: steps.buscar.outputs.hay == 'si' && github.event_name == 'workflow_dispatch'
         shell: powershell
         run: .\compilar.ps1 -SinCopiar -Publicacion
 
@@ -124,7 +150,7 @@ jobs:
 
       # La clave privada solo existe en el disco de la máquina de GitHub mientras se firma
       - name: Empaquetar y firmar
-        if: steps.buscar.outputs.hay == 'si'
+        if: steps.buscar.outputs.hay == 'si' && github.event_name == 'workflow_dispatch'
         shell: powershell
         env:
           FIRMA: ${{ secrets.BRIZNA_FIRMA_PRIVADA }}
@@ -142,13 +168,13 @@ jobs:
       # Prueba pública de que los .zip los armó GitHub con este código (además de la firma Ed25519). Se comprueba con:
       #   gh attestation verify <archivo.zip> --repo Brizna-Soft/hntorrent
       - name: Atestación de origen de los .zip
-        if: steps.buscar.outputs.hay == 'si'
+        if: steps.buscar.outputs.hay == 'si' && github.event_name == 'workflow_dispatch'
         uses: actions/attest-build-provenance@v4
         with:
           subject-path: ${{ runner.temp }}/paquete/*.zip
 
       - name: Guardar el cambio y publicar en este repositorio
-        if: steps.buscar.outputs.hay == 'si'
+        if: steps.buscar.outputs.hay == 'si' && github.event_name == 'workflow_dispatch'
         shell: powershell
         env:
           GH_TOKEN: ${{ github.token }}
@@ -170,7 +196,7 @@ jobs:
       # Sube README, su flujo de publicación y la versión firmada al repositorio público con una
       # "deploy key" que solo puede escribir ahí. Allí otro flujo comprueba la firma y crea la Release.
       - name: Subir al repositorio público de descargas
-        if: steps.buscar.outputs.hay == 'si'
+        if: steps.buscar.outputs.hay == 'si' && github.event_name == 'workflow_dispatch'
         shell: powershell
         env:
           LLAVE: ${{ secrets.DESCARGAS_DEPLOY_KEY }}
