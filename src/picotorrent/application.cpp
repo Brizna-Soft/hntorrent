@@ -72,9 +72,13 @@ namespace
 }
 
 Application::Application()
-    : wxApp(),
-    m_singleInstance(std::make_unique<wxSingleInstanceChecker>(SingleInstanceName))
+    : wxApp()
 {
+    // The updater's own modes (test start and update guard) end here, before anything else: not even the
+    // single-instance marker is created, so they can never make HNTorrent think another copy is open
+    UpdateChecker::RunUpdaterModes();
+
+    m_singleInstance = std::make_unique<wxSingleInstanceChecker>(SingleInstanceName);
     SetProcessDPIAware();
 }
 
@@ -122,13 +126,6 @@ bool Application::OnCmdLineParsed(wxCmdLineParser& parser)
 
 bool Application::OnInit()
 {
-    // Test start of the updater (see UpdateChecker::ProbeNewVersion): Windows already let this program and its
-    // libraries load, which is all that is checked. Exits before the database, the window or another running copy.
-    if (UpdateChecker::IsProbeRun())
-    {
-        ExitProcess(UpdateChecker::ProbeExitCode);
-    }
-
     if (!wxApp::OnInit()) { return false; }
 
     if (m_options.pid > 0)
@@ -256,6 +253,9 @@ bool Application::OnInit()
     }
 
     mainFrame->HandleParams(m_options);
+
+    // Tells the update guard (if there is one) that this version started fine
+    UpdateChecker::SignalStarted();
 
     return true;
 }

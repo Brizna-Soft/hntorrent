@@ -38,7 +38,18 @@ namespace Core
         // program exits right away with ProbeExitCode, before the database, the window or another running copy.
         static constexpr const wchar_t* ProbeArgument = L"--probar-inicio";
         static constexpr unsigned long ProbeExitCode = 0x48544F4B; // "HTOK"
-        static bool IsProbeRun();
+
+        // «HNTorrent.exe.anterior --vigilar-actualizacion=<pid>»: right after an update, the previous version stays
+        // watching the new one. If the new one ends with an error before saying it started, it puts the previous
+        // files back, explains it and opens the previous version.
+        static constexpr const wchar_t* GuardArgument = L"--vigilar-actualizacion=";
+
+        // Called first thing in the Application constructor: if this process is a test start or an update guard,
+        // it does that and ends the process here. Otherwise it returns and HNTorrent starts as always.
+        static void RunUpdaterModes();
+
+        // Called at the end of a normal start: lets the update guard know the new version started fine
+        static void SignalStarted();
 
     private:
         struct Manifest
@@ -62,6 +73,7 @@ namespace Core
         // What happened when the new version was started with --probar-inicio
         enum class Probe { Started, Blocked, Failed };
         static Probe ProbeNewVersion(std::filesystem::path const& exe, unsigned long& detail);
+        static void RunGuard(unsigned long newPid);
 
         void Ask(Manifest const& manifest, std::string const& baseUrl);
         void Install(std::filesystem::path const& staging);
