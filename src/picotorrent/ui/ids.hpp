@@ -27,6 +27,10 @@ namespace UI
         ptID_EVT_SHOW_DETAILS,
         ptID_EVT_SHOW_STATUS_BAR,
         ptID_EVT_VIEW_PREFERENCES,
+        ptID_EVT_REPORT_PROBLEM,
+        ptID_EVT_OPEN_LOGS,
+        ptID_EVT_DONATE,
+        ptID_EVT_BRIZNA_PAGE,
 
         ptID_KEY_ADD_TORRENT,
         ptID_KEY_ADD_MAGNET_LINK,

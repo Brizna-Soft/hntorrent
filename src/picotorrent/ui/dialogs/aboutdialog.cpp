@@ -8,6 +8,8 @@
 #include <nlohmann/json.hpp>
 #include <openssl/opensslv.h>
 #include <sqlite3.h>
+#include <wx/button.h>
+#include <wx/clipbrd.h>
 #include <wx/filename.h>
 #include <wx/hyperlink.h>
 #include <wx/listctrl.h>
@@ -18,6 +20,7 @@
 #include <wx/version.h>
 
 #include "../../buildinfo.hpp"
+#include "../brizna.hpp"
 #include "../translator.hpp"
 
 using json = nlohmann::json;
@@ -96,9 +99,39 @@ AboutDialog::AboutDialog(wxWindow* parent, wxWindowID id)
     noticesLink->Bind(wxEVT_HYPERLINK, [](wxHyperlinkEvent& evt) { wxLaunchDefaultApplication(evt.GetURL()); });
 
     auto footerSizer = new wxBoxSizer(wxHORIZONTAL);
-    footerSizer->Add(new wxHyperlinkCtrl(this, wxID_ANY, i18n("picotorrent_on_github"), "https://github.com/picotorrent/picotorrent"));
+    footerSizer->Add(new wxHyperlinkCtrl(this, wxID_ANY, i18n("hntorrent_on_github"), Brizna::Repositorio));
     footerSizer->AddStretchSpacer();
     footerSizer->Add(noticesLink);
+
+    auto linksSizer = new wxBoxSizer(wxHORIZONTAL);
+    linksSizer->Add(new wxHyperlinkCtrl(this, wxID_ANY, i18n("brizna_soft_page"), Brizna::PaginaEstudio));
+    linksSizer->AddStretchSpacer();
+    linksSizer->Add(new wxHyperlinkCtrl(this, wxID_ANY, i18n("donate_paypal"), Brizna::PaginaDonar));
+
+    // «Copiar datos para el reporte»: solo la versión de HNTorrent y la de Windows
+    auto copy = new wxButton(this, wxID_ANY, i18n("copy_report_data"));
+    copy->SetToolTip(i18n("copy_report_data_help"));
+    copy->Bind(wxEVT_BUTTON, [copy](wxCommandEvent&)
+        {
+            if (wxTheClipboard->Open())
+            {
+                wxTheClipboard->SetData(new wxTextDataObject(Brizna::DatosParaReporte()));
+                wxTheClipboard->Close();
+                copy->SetLabel(i18n("report_data_copied"));
+            }
+            else
+            {
+                copy->SetLabel(i18n("report_data_not_copied"));
+            }
+        });
+    auto close = new wxButton(this, wxID_OK, i18n("close"));
+    auto buttonSizer = new wxBoxSizer(wxHORIZONTAL);
+    buttonSizer->Add(copy);
+    buttonSizer->AddStretchSpacer();
+    buttonSizer->Add(close);
+    SetAffirmativeId(wxID_OK);
+    SetEscapeId(wxID_OK);
+    close->SetDefault();
 
     auto border = FromDIP(11);
     auto sizer = new wxBoxSizer(wxVERTICAL);
@@ -108,10 +141,14 @@ AboutDialog::AboutDialog(wxWindow* parent, wxWindowID id)
     sizer->AddSpacer(FromDIP(7));
     sizer->Add(lv, wxSizerFlags(1).Border(wxLEFT | wxRIGHT, border).Expand());
     sizer->AddSpacer(FromDIP(7));
-    sizer->Add(footerSizer, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, border);
+    sizer->Add(footerSizer, 0, wxEXPAND | wxLEFT | wxRIGHT, border);
+    sizer->AddSpacer(FromDIP(7));
+    sizer->Add(linksSizer, 0, wxEXPAND | wxLEFT | wxRIGHT, border);
+    sizer->AddSpacer(FromDIP(11));
+    sizer->Add(buttonSizer, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, border);
 
     this->SetSizerAndFit(sizer);
-    this->SetSize(FromDIP(wxSize(340, 550)));
+    this->SetSize(FromDIP(wxSize(380, 640)));   // cabe la fila de enlaces y los botones de abajo
 }
 
 AboutDialog::~AboutDialog()

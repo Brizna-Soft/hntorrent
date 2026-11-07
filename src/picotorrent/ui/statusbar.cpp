@@ -13,9 +13,8 @@ using pt::UI::StatusBar;
 
 namespace
 {
-    // Donations will go through PayPal once the account exists. Until then the link opens the
-    // "Donar" section of the downloads page, which is where the PayPal link will appear.
-    const char* DonateUrl = "https://github.com/Brizna-Soft/hntorrent-descargas#donar";
+    // Donations go through PayPal, the same as in every other Brizna Soft program
+    const char* DonateUrl = "https://paypal.me/BriznaSoft";
 
     wxBitmapBundle Heart(wxColour const& colour)
     {

@@ -18,6 +18,8 @@
 #include <wx/taskbarbutton.h>
 #include <wx/toolbar.h>
 
+#include <shlobj.h>
+
 #include "../applicationoptions.hpp"
 #include "../bittorrent/addparams.hpp"
 #include "../bittorrent/session.hpp"
@@ -31,6 +33,7 @@
 #include "../core/utils.hpp"
 #include "../ipc/server.hpp"
 #include "../updatechecker.hpp"
+#include "brizna.hpp"
 #include "console.hpp"
 #include "dialogs/aboutdialog.hpp"
 #include "dialogs/addmagnetlinkdialog.hpp"
@@ -287,6 +290,10 @@ MainFrame::MainFrame(std::shared_ptr<pt::Core::Environment> env, std::shared_ptr
     this->Bind(wxEVT_MENU, &MainFrame::OnViewHelp, this, ptID_EVT_VIEW_HELP);
     this->Bind(wxEVT_MENU, &MainFrame::OnHelpAbout, this, ptID_EVT_ABOUT);
     this->Bind(wxEVT_MENU, &MainFrame::OnHelpCheckForUpdate, this, ptID_EVT_CHECK_FOR_UPDATE);
+    this->Bind(wxEVT_MENU, [](wxCommandEvent&) { Brizna::ReportarProblema(); }, ptID_EVT_REPORT_PROBLEM);
+    this->Bind(wxEVT_MENU, &MainFrame::OnHelpOpenLogs, this, ptID_EVT_OPEN_LOGS);
+    this->Bind(wxEVT_MENU, [](wxCommandEvent&) { Brizna::AbrirEnlace(Brizna::PaginaDonar); }, ptID_EVT_DONATE);
+    this->Bind(wxEVT_MENU, [](wxCommandEvent&) { Brizna::AbrirEnlace(Brizna::PaginaEstudio); }, ptID_EVT_BRIZNA_PAGE);
 
     // Toolbar (adding torrents reuses the menu ids above)
     this->Bind(wxEVT_MENU, [this](wxCommandEvent&) { for (auto const& sel : m_selection) { sel.second->Resume(); } }, ptID_TOOLBAR_RESUME);
@@ -704,11 +711,18 @@ wxMenuBar* MainFrame::CreateMainMenu()
     m_viewMenu->AppendSeparator();
     m_viewMenu->Append(ptID_EVT_VIEW_PREFERENCES, i18n("amp_preferences"));
 
+    // Igual que en los demás programas de Brizna Soft (F1 ya está en la tabla de atajos)
     auto helpMenu = new wxMenu();
+    helpMenu->Append(ptID_EVT_VIEW_HELP, i18n("amp_how_to_use") + L"\tF1");
+    helpMenu->Append(ptID_EVT_REPORT_PROBLEM, i18n("amp_report_problem"));
+    helpMenu->Append(ptID_EVT_OPEN_LOGS, i18n("amp_open_logs_folder"));
+    helpMenu->AppendSeparator();
     helpMenu->Append(ptID_EVT_CHECK_FOR_UPDATE, i18n("amp_check_for_update"));
     helpMenu->AppendSeparator();
-    helpMenu->Append(ptID_EVT_VIEW_HELP, i18n("view_help"));
-    helpMenu->Append(ptID_EVT_ABOUT, i18n("amp_about"));
+    helpMenu->Append(ptID_EVT_DONATE, i18n("amp_donate"));
+    helpMenu->Append(ptID_EVT_BRIZNA_PAGE, i18n("amp_brizna_soft_page"));
+    helpMenu->AppendSeparator();
+    helpMenu->Append(ptID_EVT_ABOUT, i18n("amp_about_hntorrent"));
 
     auto mainMenu = new wxMenuBar();
     mainMenu->Append(fileMenu, i18n("amp_file"));
@@ -851,7 +865,36 @@ void MainFrame::OnFileCreateTorrent(wxCommandEvent&)
 
 void MainFrame::OnViewHelp(wxCommandEvent&)
 {
-    wxLaunchDefaultBrowser("https://docs.picotorrent.org");
+    // La guía corta en español, en la página de Brizna Soft
+    Brizna::AbrirEnlace(Brizna::PaginaPrograma);
+}
+
+void MainFrame::OnHelpOpenLogs(wxCommandEvent&)
+{
+    std::error_code ec;
+    fs::path folder = m_env->GetApplicationDataPath() / "logs";
+
+    if (!fs::is_directory(fs::symlink_status(folder, ec)))
+    {
+        wxMessageDialog dlg(this, i18n("no_logs_yet"), i18n("logs_folder"), wxOK | wxICON_INFORMATION);
+        dlg.SetOKLabel(i18n("ok"));
+        dlg.ShowModal();
+        return;
+    }
+
+    // Se abre la carpeta con el registro de esta vez ya marcado, para que se vea cuál pegar en el reporte
+    fs::path current = m_env->GetLogFilePath();
+    if (fs::is_regular_file(fs::symlink_status(current, ec)))
+    {
+        if (PIDLIST_ABSOLUTE item = ILCreateFromPathW(current.wstring().c_str()))
+        {
+            HRESULT hr = SHOpenFolderAndSelectItems(item, 0, nullptr, 0);
+            ILFree(item);
+            if (SUCCEEDED(hr)) { return; }
+        }
+    }
+
+    ShellExecuteW(nullptr, L"explore", folder.wstring().c_str(), nullptr, nullptr, SW_SHOWNORMAL);
 }
 
 void MainFrame::OnHelpAbout(wxCommandEvent&)
