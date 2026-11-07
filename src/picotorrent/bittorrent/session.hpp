@@ -7,8 +7,10 @@
 
 #include <map>
 #include <memory>
+#include <string>
 #include <thread>
 #include <unordered_set>
+#include <vector>
 
 #include <libtorrent/fwd.hpp>
 #include <libtorrent/info_hash.hpp>
@@ -124,6 +126,10 @@ namespace BitTorrent
         std::map<libtorrent::info_hash_t, TorrentHandle*> m_torrents;
         std::unordered_set<libtorrent::info_hash_t> m_metadataRemoving;
         std::map<libtorrent::info_hash_t, libtorrent::torrent_handle> m_metadataSearches;
+        // HNTorrent never deletes downloaded files for good: «remove with files» removes the torrent without deleting,
+        // and when libtorrent reports it removed, its files go to the Recycle Bin. Per torrent: its top-level files and
+        // folders inside its save path, and every one of its files (see session.cpp).
+        std::map<libtorrent::info_hash_t, std::pair<std::vector<std::wstring>, std::vector<std::wstring>>> m_toRecycleBin;
     };
 }
 }

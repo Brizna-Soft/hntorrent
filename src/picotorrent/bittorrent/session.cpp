@@ -22,9 +22,14 @@
 #include <wx/wfstream.h>
 #include <wx/zipstrm.h>
 
+#include <chrono>
 #include <regex>
+#include <set>
 #include <sstream>
 #include <thread>
+
+#include <windows.h>
+#include <shellapi.h>
 
 #include "../core/configuration.hpp"
 #include "../core/database.hpp"
@@ -473,10 +478,137 @@ void Session::RemoveMetadataSearch(std::vector<lt::info_hash_t> const& hashes)
     }
 }
 
+namespace
+{
+    std::wstring Wide(std::string const& utf8)
+    {
+        if (utf8.empty()) return {};
+        int n = MultiByteToWideChar(CP_UTF8, 0, utf8.data(), (int)utf8.size(), nullptr, 0);
+        std::wstring w(n > 0 ? n : 0, L'\0');
+        if (n > 0) MultiByteToWideChar(CP_UTF8, 0, utf8.data(), (int)utf8.size(), w.data(), n);
+        return w;
+    }
+
+    std::wstring Lower(std::wstring s)
+    {
+        if (!s.empty()) CharLowerBuffW(s.data(), (DWORD)s.size());
+        return s;
+    }
+
+    // What the torrent has inside its save path: its top-level files and folders (a single-file torrent: that file; a
+    // multi-file torrent: its folder) and every one of its files. Only plain names: never the save path itself, "." or
+    // "..". Nothing for a torrent without metadata (it has no files yet).
+    struct TorrentFiles
+    {
+        std::vector<std::wstring> tops;
+        std::vector<std::wstring> files;
+    };
+
+    TorrentFiles FilesOf(lt::torrent_handle const& th)
+    {
+        TorrentFiles r;
+        auto ti = th.torrent_file();
+        if (!ti) return r;
+        auto st = th.status(lt::torrent_handle::query_save_path);
+        fs::path base(Wide(st.save_path));
+        if (base.empty()) return r;
+        auto const& files = ti->files();
+        std::set<std::wstring> seen;
+        for (lt::file_index_t i : files.file_range())
+        {
+            if (files.pad_file_at(i)) continue;
+            std::string p = files.file_path(i);
+            std::string first = p.substr(0, p.find_first_of("\\/"));
+            if (first.empty() || first == "." || first == ".." || first.find(':') != std::string::npos
+                || p.find("..") != std::string::npos)
+                continue;
+            r.files.push_back((base / Wide(p)).lexically_normal().wstring());
+            std::wstring top = (base / Wide(first)).wstring();
+            if (seen.insert(Lower(top)).second) r.tops.push_back(top);
+        }
+        return r;
+    }
+
+    // A folder goes whole only if everything in it is a file of this torrent; if it also has other files (from another
+    // torrent with the same folder, or the person's own), only this torrent's files go and the folder stays
+    std::vector<std::wstring> WhatToRecycle(TorrentFiles const& t)
+    {
+        std::set<std::wstring> own;
+        for (auto const& f : t.files) own.insert(Lower(f));
+        std::vector<std::wstring> r;
+        for (auto const& top : t.tops)
+        {
+            std::error_code ec;
+            if (!fs::is_directory(fs::symlink_status(top, ec)))
+            {
+                r.push_back(top);
+                continue;
+            }
+            bool onlyOwn = true;
+            for (auto it = fs::recursive_directory_iterator(top, fs::directory_options::skip_permission_denied, ec);
+                 !ec && it != fs::recursive_directory_iterator(); it.increment(ec))
+            {
+                auto s = it->symlink_status(ec);
+                if (fs::is_directory(s)) continue;
+                if (!fs::is_regular_file(s) || !own.count(Lower(it->path().lexically_normal().wstring())))
+                {
+                    onlyOwn = false;
+                    break;
+                }
+            }
+            if (ec) onlyOwn = false;
+            if (onlyOwn) r.push_back(top);
+            else
+            {
+                std::wstring prefix = Lower(top) + L"\\";
+                for (auto const& f : t.files)
+                {
+                    if (Lower(f).rfind(prefix, 0) == 0) r.push_back(f);
+                }
+            }
+        }
+        return r;
+    }
+
+    // To the Recycle Bin, like Atarraya and Jícaro: no extra question (it was asked), no error windows, and if a disk has
+    // no Recycle Bin (some USB sticks), Windows asks before deleting for good instead of doing it silently.
+    // libtorrent may still be closing the files for a moment, so each one is tried a few times.
+    void SendToRecycleBin(TorrentFiles torrent)
+    {
+        for (auto const& path : WhatToRecycle(torrent))
+        {
+            for (int attempt = 0; attempt < 10; attempt++)
+            {
+                if (GetFileAttributesW(path.c_str()) == INVALID_FILE_ATTRIBUTES) break;
+                std::wstring doubleNull = path + L'\0';
+                SHFILEOPSTRUCTW op = {};
+                op.wFunc = FO_DELETE;
+                op.pFrom = doubleNull.c_str();
+                op.fFlags = FOF_ALLOWUNDO | FOF_NOCONFIRMATION | FOF_SILENT | FOF_NOERRORUI | FOF_WANTNUKEWARNING;
+                int r = SHFileOperationW(&op);
+                if (op.fAnyOperationsAborted) break;   // the person said no to deleting for good
+                if (r == 0) break;
+                std::this_thread::sleep_for(std::chrono::milliseconds(500));
+            }
+            BOOST_LOG_TRIVIAL(info) << "Files of a removed torrent " << (GetFileAttributesW(path.c_str()) == INVALID_FILE_ATTRIBUTES
+                ? "sent to the Recycle Bin" : "could not be sent to the Recycle Bin (they stay in place)");
+        }
+    }
+}
+
 void Session::RemoveTorrent(pt::BitTorrent::TorrentHandle* torrent, lt::remove_flags_t flags)
 {
+    bool withFiles = static_cast<bool>(flags & lt::session::delete_files);
     BOOST_LOG_TRIVIAL(info) << "Removing torrent " << torrent->Status().name << " (" << str(torrent->InfoHash()) << ")"
-        << ((flags & lt::session::delete_files) ? " and its files" : "");
+        << (withFiles ? " and sending its files to the Recycle Bin" : "");
+
+    if (withFiles)
+    {
+        // Never for good: the files are kept by libtorrent and go to the Recycle Bin once it removed the torrent
+        TorrentFiles f = FilesOf(torrent->WrappedHandle());
+        m_toRecycleBin[torrent->InfoHash()] = { std::move(f.tops), std::move(f.files) };
+        flags &= ~lt::session::delete_files;
+    }
 
     m_session->remove_torrent(torrent->WrappedHandle(), flags);
 }
@@ -841,6 +973,16 @@ void Session::OnAlert()
 
             // TODO: check if corrrect
             delete handle;
+
+            // «Remove with files»: now that libtorrent let go of the torrent, its files go to the Recycle Bin (on
+            // another thread, so a big folder doesn't freeze the window)
+            auto recycle = m_toRecycleBin.find(tra->info_hashes);
+            if (recycle != m_toRecycleBin.end())
+            {
+                TorrentFiles files{ std::move(recycle->second.first), std::move(recycle->second.second) };
+                m_toRecycleBin.erase(recycle);
+                if (!files.tops.empty()) std::thread(SendToRecycleBin, std::move(files)).detach();
+            }
 
             break;
         }
