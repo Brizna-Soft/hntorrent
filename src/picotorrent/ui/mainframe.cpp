@@ -392,9 +392,35 @@ MainFrame::MainFrame(std::shared_ptr<pt::Core::Environment> env, std::shared_ptr
     // Look for a new version in the background
     m_updateChecker = std::make_unique<UpdateChecker>(this, m_cfg, m_env);
 
-    if (m_cfg->Get<bool>("update_checks.enabled").value_or(true))
+    // The first time, HNTorrent asks before looking for new versions on its own (Sergio's decision, 2026-11-06)
+    if (!m_cfg->Get<bool>("update_checks.asked").value_or(false))
+    {
+        CallAfter([this]() { AskAboutUpdateChecks(); });
+    }
+    else if (m_cfg->Get<bool>("update_checks.enabled").value_or(true))
     {
         CallAfter([this]() { m_updateChecker->Check(false); });
+    }
+}
+
+void MainFrame::AskAboutUpdateChecks()
+{
+    wxMessageDialog dlg(
+        this,
+        i18n("ask_update_checks"),
+        i18n("ask_update_checks_title"),
+        wxYES_NO | wxICON_QUESTION);
+    dlg.SetExtendedMessage(i18n("ask_update_checks_detail"));
+    dlg.SetYesNoLabels(i18n("ask_update_checks_yes"), i18n("ask_update_checks_no"));
+
+    bool yes = dlg.ShowModal() == wxID_YES;
+
+    m_cfg->Set("update_checks.enabled", yes);
+    m_cfg->Set("update_checks.asked", true);
+
+    if (yes)
+    {
+        m_updateChecker->Check(false);
     }
 }
 
@@ -831,8 +857,8 @@ void MainFrame::OnFileAddTorrent(wxCommandEvent&)
     Win32::OpenFileDialog ofd;
 
     ofd.SetFileTypes({
-        std::make_tuple(L"Torrent files", L"*.torrent"),
-        std::make_tuple(L"All files (*.*)", L"*.*")
+        std::make_tuple(i18n("torrent_files"), std::wstring(L"*.torrent")),
+        std::make_tuple(i18n("all_files"), std::wstring(L"*.*"))
     });
 
     ofd.SetOption(Win32::OpenFileDialog::Option::Multi);

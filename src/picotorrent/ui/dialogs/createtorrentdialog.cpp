@@ -208,7 +208,7 @@ CreateTorrentDialog::CreateTorrentDialog(wxWindow* parent, wxWindowID id, std::s
                 wxEmptyString,
                 wxEmptyString,
                 wxEmptyString,
-                "Torrent file (*.torrent)|*.torrent",
+                i18n("torrent_file_filter"),
                 wxFD_SAVE | wxFD_OVERWRITE_PROMPT);
 
             if (save.ShowModal() != wxID_OK)

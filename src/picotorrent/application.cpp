@@ -154,10 +154,17 @@ bool Application::OnInit()
 
     if (!db->Migrate())
     {
-        wxMessageBox(
-            "Failed to run database migrations. Please check log file.",
-            "HNTorrent",
-            wxICON_ERROR);
+        // The translations are not loaded yet (they come from the database): the text goes in Spanish
+        wxMessageDialog dlg(
+            nullptr,
+            L"No se pudo preparar la base de datos de HNTorrent, así que no puede abrirse.\n\n"
+            L"Cierra las otras copias de HNTorrent y vuelve a abrirlo. Si sigue pasando, avísanos en "
+            L"https://github.com/Brizna-Soft/hntorrent-descargas/issues y pega el último archivo .log de la carpeta "
+            L"«logs» (está junto a HNTorrent.exe o en %LOCALAPPDATA%\\HNTorrent).",
+            L"HNTorrent",
+            wxOK | wxICON_ERROR);
+        dlg.SetOKLabel(L"Aceptar");
+        dlg.ShowModal();
         return false;
     }
 

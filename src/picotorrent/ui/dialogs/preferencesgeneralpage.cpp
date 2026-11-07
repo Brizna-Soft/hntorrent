@@ -4,6 +4,10 @@
 
 #include <boost/log/trivial.hpp>
 
+#include <wx/button.h>
+#include <wx/msgdlg.h>
+
+#include "../asociaciones.hpp"
 #include "../clientdata.hpp"
 #include "../../core/configuration.hpp"
 #include "../../core/utils.hpp"
@@ -132,12 +136,51 @@ PreferencesGeneralPage::PreferencesGeneralPage(wxWindow* parent, std::shared_ptr
     notifGrid->Add(m_closeNotification, 0, wxLEFT, FromDIP(15));
     notifSizer->Add(notifGrid, 1, wxEXPAND | wxALL, FromDIP(5));
 
+    // Abrir los magnet y los .torrent con HNTorrent: solo si la persona lo pide con el botón (cambia algo de Windows)
+    wxStaticBoxSizer* openSizer = new wxStaticBoxSizer(wxVERTICAL, this, i18n("open_with_hntorrent"));
+    auto openText = new wxStaticText(openSizer->GetStaticBox(), wxID_ANY, i18n("open_with_hntorrent_help"));
+    openText->Wrap(FromDIP(380));
+    auto openButton = new wxButton(openSizer->GetStaticBox(), wxID_ANY, i18n("open_with_hntorrent_button"));
+    auto stopButton = new wxButton(openSizer->GetStaticBox(), wxID_ANY, i18n("open_with_hntorrent_stop"));
+    stopButton->Enable(Asociaciones::EstaAnotado());
+    auto openButtons = new wxBoxSizer(wxHORIZONTAL);
+    openButtons->Add(openButton, 0, wxRIGHT, FromDIP(7));
+    openButtons->Add(stopButton, 0);
+    openSizer->Add(openText, 0, wxALL, FromDIP(5));
+    openSizer->Add(openButtons, 0, wxALL, FromDIP(5));
+
+    openButton->Bind(wxEVT_BUTTON, [this, stopButton](wxCommandEvent&)
+        {
+            wxMessageDialog ask(this, i18n("open_with_hntorrent_confirm"), i18n("open_with_hntorrent"), wxYES_NO | wxNO_DEFAULT | wxICON_QUESTION);
+            ask.SetYesNoLabels(i18n("open_with_hntorrent_yes"), i18n("cancel"));
+            if (ask.ShowModal() != wxID_YES) { return; }
+
+            bool ok = Asociaciones::Anotar(i18n("torrent_file_description"), i18n("magnet_link_description"), i18n("hntorrent_app_description"));
+            stopButton->Enable(Asociaciones::EstaAnotado());
+            wxMessageDialog done(this, ok ? i18n("open_with_hntorrent_done") : i18n("open_with_hntorrent_failed"),
+                i18n("open_with_hntorrent"), wxOK | (ok ? wxICON_INFORMATION : wxICON_WARNING));
+            done.SetOKLabel(i18n("ok"));
+            done.ShowModal();
+            if (ok) { Asociaciones::AbrirConfiguracion(); }
+        });
+
+    stopButton->Bind(wxEVT_BUTTON, [this, stopButton](wxCommandEvent&)
+        {
+            Asociaciones::Quitar();
+            stopButton->Enable(Asociaciones::EstaAnotado());
+            wxMessageDialog done(this, i18n("open_with_hntorrent_removed"), i18n("open_with_hntorrent"), wxOK | wxICON_INFORMATION);
+            done.SetOKLabel(i18n("ok"));
+            done.ShowModal();
+        });
+
     wxBoxSizer* sizer = new wxBoxSizer(wxVERTICAL);
     sizer->Add(uiSizer, 0, wxEXPAND);
     sizer->AddSpacer(10);
     sizer->Add(miscSizer, 0, wxEXPAND);
     sizer->AddSpacer(10);
     sizer->Add(notifSizer, 0, wxEXPAND);
+    sizer->AddSpacer(10);
+    sizer->Add(openSizer, 0, wxEXPAND);
     sizer->AddStretchSpacer();
 
     this->SetSizerAndFit(sizer);
