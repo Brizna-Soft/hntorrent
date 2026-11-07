@@ -871,10 +871,19 @@ void MainFrame::OnViewHelp(wxCommandEvent&)
 
 void MainFrame::OnHelpOpenLogs(wxCommandEvent&)
 {
-    std::error_code ec;
-    fs::path folder = m_env->GetApplicationDataPath() / "logs";
+    fs::path data = m_env->GetApplicationDataPath();
+    fs::path folder = data / "logs";
 
-    if (!fs::is_directory(fs::symlink_status(folder, ec)))
+    // Ni la carpeta de datos ni la de registros pueden ser enlaces o uniones: se abriría otra carpeta
+    auto isPlainDirectory = [](fs::path const& p)
+        {
+            DWORD attributes = GetFileAttributesW(p.wstring().c_str());
+            return attributes != INVALID_FILE_ATTRIBUTES
+                && (attributes & FILE_ATTRIBUTE_DIRECTORY)
+                && !(attributes & FILE_ATTRIBUTE_REPARSE_POINT);
+        };
+
+    if (!isPlainDirectory(data) || !isPlainDirectory(folder))
     {
         wxMessageDialog dlg(this, i18n("no_logs_yet"), i18n("logs_folder"), wxOK | wxICON_INFORMATION);
         dlg.SetOKLabel(i18n("ok"));
@@ -884,7 +893,9 @@ void MainFrame::OnHelpOpenLogs(wxCommandEvent&)
 
     // Se abre la carpeta con el registro de esta vez ya marcado, para que se vea cuál pegar en el reporte
     fs::path current = m_env->GetLogFilePath();
-    if (fs::is_regular_file(fs::symlink_status(current, ec)))
+    DWORD currentAttributes = GetFileAttributesW(current.wstring().c_str());
+    if (currentAttributes != INVALID_FILE_ATTRIBUTES
+        && !(currentAttributes & (FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_REPARSE_POINT)))
     {
         if (PIDLIST_ABSOLUTE item = ILCreateFromPathW(current.wstring().c_str()))
         {
