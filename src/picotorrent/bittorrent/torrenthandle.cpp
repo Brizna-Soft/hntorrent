@@ -1,5 +1,16 @@
 #include "torrenthandle.hpp"
 
+#include <set>
+#include <string>
+#include <vector>
+
+#include <windows.h>
+#include <shlobj.h>
+
+#include <libtorrent/torrent_info.hpp>
+
+#include "../core/utils.hpp"
+
 #include <libtorrent/announce_entry.hpp>
 #include <libtorrent/session.hpp>
 #include <libtorrent/torrent_handle.hpp>
@@ -188,9 +199,47 @@ void TorrentHandle::Remove()
     m_session->RemoveTorrent(this);
 }
 
+// «Quitar y abrir la carpeta»: HNTorrent never deletes downloaded files. It removes the torrent from the list (the files
+// stay) and opens File Explorer in its save folder with the torrent's files or folder selected, so the person decides
+// whether to delete them (File Explorer sends them to the Recycle Bin).
 void TorrentHandle::RemoveFiles()
 {
-    m_session->RemoveTorrent(this, lt::session_handle::delete_files);
+    std::vector<std::wstring> top;
+    std::wstring folder;
+    if (auto ti = m_th->torrent_file())
+    {
+        folder = pt::Utils::toStdWString(m_th->status(lt::torrent_handle::query_save_path).save_path);
+        auto const& files = ti->files();
+        std::set<std::wstring> seen;
+        for (lt::file_index_t i : files.file_range())
+        {
+            if (files.pad_file_at(i)) continue;
+            std::string p = files.file_path(i);
+            std::string first = p.substr(0, p.find_first_of("\\/"));
+            if (first.empty() || first == "." || first == ".." || first.find(':') != std::string::npos) continue;
+            std::wstring name = pt::Utils::toStdWString(first);
+            if (seen.insert(name).second) top.push_back(name);
+        }
+    }
+
+    m_session->RemoveTorrent(this);
+
+    if (folder.empty()) return;
+    PIDLIST_ABSOLUTE parent = ILCreateFromPathW(folder.c_str());
+    if (!parent) return;
+    std::vector<PIDLIST_ABSOLUTE> items;
+    for (auto const& name : top)
+    {
+        std::wstring full = folder + L"\\" + name;
+        if (GetFileAttributesW(full.c_str()) == INVALID_FILE_ATTRIBUTES) continue;   // never downloaded
+        if (PIDLIST_ABSOLUTE item = ILCreateFromPathW(full.c_str())) items.push_back(item);
+    }
+    // Selecting only opens and marks: nothing is deleted, moved or run
+    std::vector<PCUITEMID_CHILD> children;
+    for (auto item : items) children.push_back(ILFindLastID(item));
+    SHOpenFolderAndSelectItems(parent, (UINT)children.size(), children.empty() ? nullptr : children.data(), 0);
+    for (auto item : items) ILFree(item);
+    ILFree(parent);
 }
 
 void TorrentHandle::Resume()
