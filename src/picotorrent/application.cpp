@@ -9,6 +9,7 @@
 #include <nlohmann/json.hpp>
 #include <wx/cmdline.h>
 #include <wx/ipc.h>
+#include <wx/log.h>
 #include <wx/persist.h>
 #include <wx/snglinst.h>
 #include <wx/stdpaths.h>
@@ -346,6 +347,9 @@ bool Application::ActivateOtherInstance()
     j["magnet_links"] = m_options.magnets;
     j["silent"] = m_options.silent;
     j["save_path"] = m_options.save_path;
+
+    // A copy that does not answer is expected here (it may be closing): wx must not keep an error for every attempt
+    wxLogNull noErrors;
 
     wxClient client;
     auto conn = client.MakeConnection(
