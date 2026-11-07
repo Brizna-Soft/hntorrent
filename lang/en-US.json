@@ -109,7 +109,7 @@
     "show_on_github": "Show on GitHub",
     "new_version_available": "A newer version of HNTorrent is available.",
     "ignore_update": "Ignore this update",
-    "confirm_remove_description": "HNTorrent removes the torrent from the list and opens its folder with its files selected. It deletes nothing: if you no longer want them, delete them yourself in File Explorer (they go to the Recycle Bin).",
+    "confirm_remove_description": "HNTorrent removes the torrent from the list and opens its folder with its files selected. It deletes nothing: you decide what to do with them. Check the selection before deleting.",
     "confirm_remove": "Confirm remove",
     "select_destination": "Select destination",
     "state_checking_resume_data": "Checking resume data",

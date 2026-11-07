@@ -6,6 +6,7 @@
 
 #include <windows.h>
 #include <shlobj.h>
+#include <shellapi.h>
 
 #include <libtorrent/torrent_info.hpp>
 
@@ -200,46 +201,72 @@ void TorrentHandle::Remove()
 }
 
 // «Quitar y abrir la carpeta»: HNTorrent never deletes downloaded files. It removes the torrent from the list (the files
-// stay) and opens File Explorer in its save folder with the torrent's files or folder selected, so the person decides
-// whether to delete them (File Explorer sends them to the Recycle Bin).
+// stay) and opens File Explorer where the torrent's files are, so the person decides what to do with them:
+// - the folder is the torrent's own folder (save path + its root folder) for a multi-file torrent, or the save path for
+//   a single-file one;
+// - only the torrent's own files directly in that folder are selected, never a folder (it could hold other things);
+// - with nothing to select, the folder opens with nothing selected (an empty selection would select the folder itself).
+// It only opens and selects; File Explorer may still show thumbnails or previews, as it always does.
 void TorrentHandle::RemoveFiles()
 {
-    std::vector<std::wstring> top;
     std::wstring folder;
+    std::vector<std::wstring> names;   // the torrent's files directly in «folder»
     if (auto ti = m_th->torrent_file())
     {
-        folder = pt::Utils::toStdWString(m_th->status(lt::torrent_handle::query_save_path).save_path);
+        std::wstring savePath = pt::Utils::toStdWString(m_th->status(lt::torrent_handle::query_save_path).save_path);
         auto const& files = ti->files();
-        std::set<std::wstring> seen;
-        for (lt::file_index_t i : files.file_range())
+        bool multi = files.num_files() > 1;
+        std::wstring root = multi ? pt::Utils::toStdWString(files.name()) : std::wstring();
+        bool rootOk = !multi || (!root.empty() && root != L"." && root != L".." && root.find_first_of(L"\\/:") == std::wstring::npos);
+        if (!savePath.empty() && rootOk)
         {
-            if (files.pad_file_at(i)) continue;
-            std::string p = files.file_path(i);
-            std::string first = p.substr(0, p.find_first_of("\\/"));
-            if (first.empty() || first == "." || first == ".." || first.find(':') != std::string::npos) continue;
-            std::wstring name = pt::Utils::toStdWString(first);
-            if (seen.insert(name).second) top.push_back(name);
+            folder = multi ? savePath + L"\\" + root : savePath;
+            std::set<std::wstring> seen;
+            for (lt::file_index_t i : files.file_range())
+            {
+                if (files.pad_file_at(i)) continue;
+                std::wstring p = pt::Utils::toStdWString(files.file_path(i));
+                // Inside the root folder for a multi-file torrent: «root\name»; for a single file: «name»
+                std::wstring rest = p;
+                if (multi)
+                {
+                    if (p.size() <= root.size() + 1 || p.compare(0, root.size(), root) != 0 || (p[root.size()] != L'\\' && p[root.size()] != L'/'))
+                        continue;
+                    rest = p.substr(root.size() + 1);
+                }
+                if (rest.empty() || rest == L"." || rest == L".." || rest.find_first_of(L"\\/:") != std::wstring::npos) continue;
+                if (seen.insert(rest).second) names.push_back(rest);
+            }
         }
     }
 
     m_session->RemoveTorrent(this);
 
     if (folder.empty()) return;
-    PIDLIST_ABSOLUTE parent = ILCreateFromPathW(folder.c_str());
-    if (!parent) return;
+    DWORD attributes = GetFileAttributesW(folder.c_str());
+    if (attributes == INVALID_FILE_ATTRIBUTES || !(attributes & FILE_ATTRIBUTE_DIRECTORY)) return;   // nothing was downloaded
+
     std::vector<PIDLIST_ABSOLUTE> items;
-    for (auto const& name : top)
+    for (auto const& name : names)
     {
         std::wstring full = folder + L"\\" + name;
-        if (GetFileAttributesW(full.c_str()) == INVALID_FILE_ATTRIBUTES) continue;   // never downloaded
+        DWORD a = GetFileAttributesW(full.c_str());
+        if (a == INVALID_FILE_ATTRIBUTES || (a & FILE_ATTRIBUTE_DIRECTORY)) continue;   // never downloaded, or not a file
         if (PIDLIST_ABSOLUTE item = ILCreateFromPathW(full.c_str())) items.push_back(item);
     }
-    // Selecting only opens and marks: nothing is deleted, moved or run
-    std::vector<PCUITEMID_CHILD> children;
-    for (auto item : items) children.push_back(ILFindLastID(item));
-    SHOpenFolderAndSelectItems(parent, (UINT)children.size(), children.empty() ? nullptr : children.data(), 0);
+    if (items.empty())
+    {
+        ShellExecuteW(nullptr, L"explore", folder.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+        return;
+    }
+    if (PIDLIST_ABSOLUTE parent = ILCreateFromPathW(folder.c_str()))
+    {
+        std::vector<PCUITEMID_CHILD> children;
+        for (auto item : items) children.push_back(ILFindLastID(item));
+        SHOpenFolderAndSelectItems(parent, (UINT)children.size(), children.data(), 0);
+        ILFree(parent);
+    }
     for (auto item : items) ILFree(item);
-    ILFree(parent);
 }
 
 void TorrentHandle::Resume()
