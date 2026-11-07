@@ -54,8 +54,8 @@ Otros scripts:
 
 ## Política de firma de código (Code signing policy)
 
-Pedimos la firma gratuita de SignPath Foundation para los .exe de HNTorrent. Cuando la aprueben, cada versión
-llevará esta firma:
+Estamos preparando la solicitud de la firma gratuita de SignPath Foundation para los .exe de HNTorrent; todavía no
+se ha enviado. Si la aprueban, cada versión llevará esta firma:
 
 > Free code signing provided by [SignPath.io](https://about.signpath.io), certificate by
 > [SignPath Foundation](https://signpath.org).
