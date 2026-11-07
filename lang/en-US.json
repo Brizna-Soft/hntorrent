@@ -1,4 +1,5 @@
 {
+    "update_reverted": "The new version of HNTorrent could not open on this PC, so HNTorrent went back to this version by itself. Nothing was lost: your torrents and settings are still here.",
     "update_blocked_by_windows_s": "Windows did not let the new version of HNTorrent ({0}) open. This usually happens with Smart App Control, which blocks programs without a digital signature. Nothing was changed: you still have version {1} and it works as before. (Code {2})",
     "update_probe_failed_s": "The new version of HNTorrent ({0}) did not start correctly on this PC, so it was not installed. Nothing was changed: you still have version {1}. (Code {2})",
     "update_start_failed_restored_s": "The new version was installed, but Windows did not let it open. HNTorrent went back to the previous version by itself: nothing was lost. (Code {0})",

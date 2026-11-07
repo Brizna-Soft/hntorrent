@@ -54,6 +54,7 @@ namespace
 
     const char* StagingFolder = "actualizacion-pendiente";
     const wchar_t* BackupSuffix = L".anterior";
+    const wchar_t* FailedSuffix = L".fallida";
     const size_t MaxManifestSize = 64 * 1024;
     const size_t MaxPackageSize = 200 * 1024 * 1024;
     const size_t MaxEntrySize = 150 * 1024 * 1024;
@@ -436,16 +437,18 @@ void UpdateChecker::CleanUp(fs::path const& appDir)
 {
     std::error_code ec;
     fs::remove_all(appDir / StagingFolder, ec);
+
+    // What a new version that could not start left behind when it went back to the previous one
+    for (const char* name : PackageFiles)
+    {
+        fs::path failed = appDir / name;
+        failed += FailedSuffix;
+        fs::remove(failed, ec);
+    }
 }
 
 namespace
 {
-    // Named event that a new version sets when it started fine; the update guard waits for it
-    std::wstring StartedEventName(unsigned long pid)
-    {
-        return fmt::format(L"Local\\HNTorrent-arranque-{}", pid);
-    }
-
     fs::path ThisExecutable()
     {
         std::wstring path(MAX_PATH, L'\0');
@@ -459,95 +462,95 @@ namespace
             path.resize(path.size() * 2);
         }
     }
+
+    // Everything the way back needs, prepared by ArmRevert: if this version crashes, the handler only has to rename
+    // files and start a process (no allocations, no wx, no database)
+    struct RevertPlan
+    {
+        bool armed = false;
+        std::vector<std::pair<std::wstring, std::wstring>> moves;   // in order: (from, to)
+        std::wstring exe;
+        std::wstring dir;
+        std::wstring commandLine;
+        LPTOP_LEVEL_EXCEPTION_FILTER previousFilter = nullptr;
+    };
+
+    RevertPlan g_revert;
+    std::atomic<bool> g_reverting{ false };
+
+    // Puts the previous files back and opens the previous version, which waits for this process to end and then
+    // explains what happened. Returns true only if the previous version was started.
+    bool DoRevert()
+    {
+        if (!g_revert.armed || g_reverting.exchange(true)) { return false; }
+
+        bool moved = true;
+
+        for (auto const& m : g_revert.moves)
+        {
+            moved = (MoveFileExW(m.first.c_str(), m.second.c_str(), MOVEFILE_REPLACE_EXISTING) != FALSE) && moved;
+        }
+
+        // Without the previous executable back in its place there is nothing to open
+        if (GetFileAttributesW(g_revert.exe.c_str()) == INVALID_FILE_ATTRIBUTES) { return false; }
+
+        STARTUPINFOW si = { sizeof(STARTUPINFOW) };
+        PROCESS_INFORMATION pi = {};
+
+        if (!CreateProcessW(g_revert.exe.c_str(), g_revert.commandLine.data(), nullptr, nullptr, FALSE, 0, nullptr,
+                g_revert.dir.c_str(), &si, &pi))
+        {
+            return false;
+        }
+
+        CloseHandle(pi.hThread);
+        CloseHandle(pi.hProcess);
+
+        // Even if a secondary file (translations, notices) could not come back, the previous program is open
+        if (!moved) { OutputDebugStringW(L"HNTorrent: some previous files could not be put back\n"); }
+        return true;
+    }
+
+    LONG WINAPI RevertOnCrash(EXCEPTION_POINTERS* info)
+    {
+        DoRevert();
+        return g_revert.previousFilter != nullptr ? g_revert.previousFilter(info) : EXCEPTION_CONTINUE_SEARCH;
+    }
 }
 
 void UpdateChecker::RunUpdaterModes()
 {
-    // Only «HNTorrent.exe --probar-inicio» or «HNTorrent.exe.anterior --vigilar-actualizacion=<pid>», nothing else
+    // Only «HNTorrent.exe --probar-inicio», nothing else
     int count = 0;
     LPWSTR* args = CommandLineToArgvW(GetCommandLineW(), &count);
 
     if (args == nullptr) { return; }
 
-    std::wstring arg = count == 2 ? args[1] : L"";
+    bool probe = count == 2 && wcscmp(args[1], ProbeArgument) == 0;
     LocalFree(args);
 
-    if (arg == ProbeArgument)
+    if (probe)
     {
         // Test start: Windows already let this program and its libraries load, which is all that is checked
         ExitProcess(ProbeExitCode);
     }
-
-    std::wstring guard = GuardArgument;
-
-    if (arg.size() > guard.size() && arg.compare(0, guard.size(), guard) == 0)
-    {
-        wchar_t* end = nullptr;
-        unsigned long pid = wcstoul(arg.c_str() + guard.size(), &end, 10);
-
-        if (pid != 0 && end != nullptr && *end == L'\0')
-        {
-            RunGuard(pid);
-        }
-
-        ExitProcess(0);
-    }
 }
 
-void UpdateChecker::SignalStarted()
+void UpdateChecker::ArmRevert()
 {
-    // The handle stays open while HNTorrent runs, so the event exists for as long as the guard may look for it
-    HANDLE started = CreateEventW(nullptr, TRUE, FALSE, StartedEventName(GetCurrentProcessId()).c_str());
-
-    if (started != nullptr) { SetEvent(started); }
-}
-
-void UpdateChecker::RunGuard(unsigned long newPid)
-{
-    // This process is the previous version (HNTorrent.exe.anterior), started by the updater right before it closed
-    fs::path self = ThisExecutable();
-    fs::path dir = self.parent_path();
-    fs::path exe = dir / ExecutableName;
-
-    HANDLE process = OpenProcess(SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION, FALSE, newPid);
-
-    if (process == nullptr) { return; }
-
-    // It has to be the HNTorrent.exe of this same folder: otherwise, nothing to watch
-    std::wstring image(32768, L'\0');
-    DWORD size = static_cast<DWORD>(image.size());
+    fs::path exe = ThisExecutable();
+    fs::path dir = exe.parent_path();
     std::error_code ec;
 
-    if (!QueryFullProcessImageNameW(process, 0, image.data(), &size)
-        || !fs::equivalent(fs::path(image.substr(0, size)), exe, ec))
-    {
-        CloseHandle(process);
-        return;
-    }
+    fs::path previousExe = exe;
+    previousExe += BackupSuffix;
 
-    HANDLE started = CreateEventW(nullptr, TRUE, FALSE, StartedEventName(newPid).c_str());
-    HANDLE handles[2] = { process, started };
-    DWORD count = started != nullptr ? 2 : 1;
+    // Only if the previous version is there to go back to
+    if (exe.empty() || !fs::is_regular_file(previousExe, ec)) { return; }
 
-    // Up to 10 minutes: the new version first waits for the previous one to close, then opens its database
-    DWORD result = WaitForMultipleObjects(count, handles, FALSE, 10 * 60 * 1000);
-    bool failed = false;
-
-    if (result == WAIT_OBJECT_0)
-    {
-        // The new version ended: it counts as a failure only if it never said it started and ended with an error
-        DWORD code = 0;
-        bool saidStarted = started != nullptr && WaitForSingleObject(started, 0) == WAIT_OBJECT_0;
-        failed = !saidStarted && GetExitCodeProcess(process, &code) && code != 0;
-    }
-
-    if (started != nullptr) { CloseHandle(started); }
-    CloseHandle(process);
-
-    if (!failed) { return; }
-
-    // Put the previous files back (this running file included: a running program can be renamed)
-    bool restored = true;
+    // First every new file steps aside (a running program can be renamed), then the previous ones come back
+    std::vector<std::pair<std::wstring, std::wstring>> aside;
+    std::vector<std::pair<std::wstring, std::wstring>> back;
 
     for (const char* name : PackageFiles)
     {
@@ -555,37 +558,38 @@ void UpdateChecker::RunGuard(unsigned long newPid)
         fs::path backup = target;
         backup += BackupSuffix;
 
-        if (fs::exists(backup, ec))
-        {
-            restored = (MoveFileExW(backup.c_str(), target.c_str(), MOVEFILE_REPLACE_EXISTING) != FALSE) && restored;
-        }
+        if (!fs::is_regular_file(backup, ec)) { continue; }
+
+        fs::path failed = target;
+        failed += FailedSuffix;
+        aside.emplace_back(target.wstring(), failed.wstring());
+        back.emplace_back(backup.wstring(), target.wstring());
     }
 
-    // The translations are in the database, which may be what failed: the text goes in Spanish
-    if (!restored)
-    {
-        MessageBoxW(nullptr,
-            L"La versión nueva de HNTorrent no pudo abrir en esta PC, y no se pudo volver del todo a la versión anterior.\n\n"
-            L"Los archivos anteriores están junto a HNTorrent.exe con la terminación .anterior: quítale esa terminación "
-            L"para recuperarlos.",
-            L"HNTorrent", MB_OK | MB_ICONERROR | MB_SETFOREGROUND);
-        return;
-    }
+    g_revert.moves = aside;
+    g_revert.moves.insert(g_revert.moves.end(), back.begin(), back.end());
+    g_revert.exe = exe.wstring();
+    g_revert.dir = dir.wstring();
+    g_revert.commandLine = fmt::format(L"\"{}\" --wait-for-pid={} --actualizacion-revertida", exe.wstring(), GetCurrentProcessId());
+    g_revert.armed = true;
+    g_revert.previousFilter = SetUnhandledExceptionFilter(RevertOnCrash);
+}
 
-    MessageBoxW(nullptr,
-        L"La versión nueva de HNTorrent no pudo abrir en esta PC, así que HNTorrent volvió solo a la versión anterior. "
-        L"No perdiste nada: tus torrents y tus ajustes siguen ahí.\n\nAhora se abre la versión anterior.",
-        L"HNTorrent", MB_OK | MB_ICONWARNING | MB_SETFOREGROUND);
+bool UpdateChecker::RevertIfArmed()
+{
+    bool reverted = DoRevert();
 
-    std::wstring commandLine = fmt::format(L"\"{}\"", exe.wstring());
-    STARTUPINFOW si = { sizeof(STARTUPINFOW) };
-    PROCESS_INFORMATION pi = {};
+    if (reverted) { BOOST_LOG_TRIVIAL(error) << "The new version could not start: went back to the previous one"; }
 
-    if (CreateProcessW(exe.c_str(), commandLine.data(), nullptr, nullptr, FALSE, 0, nullptr, dir.c_str(), &si, &pi))
-    {
-        CloseHandle(pi.hThread);
-        CloseHandle(pi.hProcess);
-    }
+    return reverted;
+}
+
+void UpdateChecker::DisarmRevert()
+{
+    if (!g_revert.armed) { return; }
+
+    g_revert.armed = false;
+    SetUnhandledExceptionFilter(g_revert.previousFilter);
 }
 
 UpdateChecker::Probe UpdateChecker::ProbeNewVersion(fs::path const& exe, unsigned long& detail)
@@ -601,11 +605,15 @@ UpdateChecker::Probe UpdateChecker::ProbeNewVersion(fs::path const& exe, unsigne
     // The test start is tied to this HNTorrent: if this one closes during the wait, Windows ends the test too
     HANDLE job = CreateJobObjectW(nullptr, nullptr);
 
-    if (job != nullptr)
+    JOBOBJECT_EXTENDED_LIMIT_INFORMATION limits = {};
+    limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+
+    // Without that protection the test is not done (and so nothing is installed)
+    if (job == nullptr || !SetInformationJobObject(job, JobObjectExtendedLimitInformation, &limits, sizeof(limits)))
     {
-        JOBOBJECT_EXTENDED_LIMIT_INFORMATION limits = {};
-        limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
-        SetInformationJobObject(job, JobObjectExtendedLimitInformation, &limits, sizeof(limits));
+        detail = GetLastError();
+        if (job != nullptr) { CloseHandle(job); }
+        return Probe::Failed;
     }
 
     if (!CreateProcessW(exe.c_str(), commandLine.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW | CREATE_SUSPENDED,
@@ -613,7 +621,7 @@ UpdateChecker::Probe UpdateChecker::ProbeNewVersion(fs::path const& exe, unsigne
     {
         detail = GetLastError();
 
-        if (job != nullptr) { CloseHandle(job); }
+        CloseHandle(job);
 
         // 4551 = ERROR_SYSTEM_INTEGRITY_POLICY_VIOLATION (Smart App Control or another application control
         // policy), 1260 = ERROR_ACCESS_DISABLED_BY_POLICY, 225/226 = the antivirus blocked or removed it
@@ -622,8 +630,19 @@ UpdateChecker::Probe UpdateChecker::ProbeNewVersion(fs::path const& exe, unsigne
         return blocked ? Probe::Blocked : Probe::Failed;
     }
 
-    // Into the job before it runs a single instruction, then it may start
-    if (job != nullptr) { AssignProcessToJobObject(job, pi.hProcess); }
+    // Into the job before it runs a single instruction, then it may start. If it cannot go into the job, it never
+    // runs: it is ended while still paused.
+    if (!AssignProcessToJobObject(job, pi.hProcess))
+    {
+        detail = GetLastError();
+        TerminateProcess(pi.hProcess, 1);
+        WaitForSingleObject(pi.hProcess, 5000);
+        CloseHandle(pi.hThread);
+        CloseHandle(pi.hProcess);
+        CloseHandle(job);
+        return Probe::Failed;
+    }
+
     ResumeThread(pi.hThread);
     CloseHandle(pi.hThread);
 
@@ -639,8 +658,7 @@ UpdateChecker::Probe UpdateChecker::ProbeNewVersion(fs::path const& exe, unsigne
     }
 
     CloseHandle(pi.hProcess);
-
-    if (job != nullptr) { CloseHandle(job); }
+    CloseHandle(job);
 
     if (exited && code == ProbeExitCode) { return Probe::Started; }
 
@@ -902,8 +920,9 @@ void UpdateChecker::Install(fs::path const& staging)
 
     CleanUp(dir);
 
-    // The new version waits for this process to exit before it starts
-    std::wstring commandLine = fmt::format(L"\"{}\" --wait-for-pid={}", exe.wstring(), GetCurrentProcessId());
+    // The new version waits for this process to exit before it starts. With --recien-actualizado, if it cannot
+    // finish starting it goes back to these previous files by itself (see ArmRevert).
+    std::wstring commandLine = fmt::format(L"\"{}\" --wait-for-pid={} --recien-actualizado", exe.wstring(), GetCurrentProcessId());
     STARTUPINFOW si = { sizeof(STARTUPINFOW) };
     PROCESS_INFORMATION pi = {};
 
@@ -919,26 +938,6 @@ void UpdateChecker::Install(fs::path const& staging)
             ? fmt::format(i18n("update_start_failed_restored_s"), fmt::format(L"{:#x}", startError))
             : fmt::format(i18n("update_restore_failed_s"), fmt::format(L"start ({})", startError)));
         return;
-    }
-
-    // The previous version (now HNTorrent.exe.anterior) stays watching the new one: if it ends with an error before
-    // saying it started, the guard puts the previous files back and opens them. If the guard cannot start, the update
-    // goes on as before (the new version passed the test start).
-    fs::path guardExe = exe;
-    guardExe += BackupSuffix;
-    std::wstring guardLine = fmt::format(L"\"{}\" {}{}", guardExe.wstring(), GuardArgument, pi.dwProcessId);
-    STARTUPINFOW guardSi = { sizeof(STARTUPINFOW) };
-    PROCESS_INFORMATION guardPi = {};
-
-    if (CreateProcessW(guardExe.c_str(), guardLine.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW, nullptr, dir.c_str(),
-            &guardSi, &guardPi))
-    {
-        CloseHandle(guardPi.hThread);
-        CloseHandle(guardPi.hProcess);
-    }
-    else
-    {
-        BOOST_LOG_TRIVIAL(warning) << "The update guard could not start (" << GetLastError() << ")";
     }
 
     CloseHandle(pi.hThread);

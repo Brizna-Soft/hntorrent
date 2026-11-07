@@ -1,4 +1,5 @@
 {
+    "update_reverted": "La versión nueva de HNTorrent no pudo abrir en esta PC, así que HNTorrent volvió solo a esta versión. No perdiste nada: tus torrents y tus ajustes siguen aquí.",
     "update_blocked_by_windows_s": "Windows no dejó abrir la versión nueva de HNTorrent ({0}). Suele pasar con el «Control inteligente de aplicaciones», que bloquea los programas sin firma digital. No se cambió nada: sigues con la versión {1} y funciona igual. (Código {2})",
     "update_probe_failed_s": "La versión nueva de HNTorrent ({0}) no arrancó bien en esta PC, así que no se instaló. No se cambió nada: sigues con la versión {1}. (Código {2})",
     "update_start_failed_restored_s": "La versión nueva se instaló, pero Windows no la dejó abrir. HNTorrent volvió solo a la versión anterior: no perdiste nada. (Código {0})",

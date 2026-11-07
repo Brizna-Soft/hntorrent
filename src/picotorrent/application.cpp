@@ -101,6 +101,8 @@ bool Application::OnCmdLineParsed(wxCmdLineParser& parser)
     }
 
     m_options.silent = parser.Found("silent");
+    m_options.justUpdated = parser.Found("recien-actualizado");
+    m_options.reverted = parser.Found("actualizacion-revertida");
 
     if (parser.Found("save-path", &save_path))
     {
@@ -144,6 +146,13 @@ bool Application::OnInit()
         return false;
     }
 
+    // Right after an update: if this new version cannot finish starting (an error below, or it crashes), it puts
+    // the previous files back by itself and opens the previous version. Closing it normally never does that.
+    if (m_options.justUpdated)
+    {
+        UpdateChecker::ArmRevert();
+    }
+
     // The new process waits for this one to exit before it starts
     if (RestartAsHNTorrent(m_options))
     {
@@ -158,6 +167,12 @@ bool Application::OnInit()
 
     if (!db->Migrate())
     {
+        // Just updated: go back to the previous version, which says what happened (the migration was rolled back)
+        if (UpdateChecker::RevertIfArmed())
+        {
+            return false;
+        }
+
         // The translations are not loaded yet (they come from the database): the text goes in Spanish
         wxMessageDialog dlg(
             nullptr,
@@ -254,8 +269,18 @@ bool Application::OnInit()
 
     mainFrame->HandleParams(m_options);
 
-    // Tells the update guard (if there is one) that this version started fine
-    UpdateChecker::SignalStarted();
+    // From here on this version counts as started: a later problem never puts the previous version back
+    UpdateChecker::DisarmRevert();
+
+    if (m_options.reverted)
+    {
+        mainFrame->CallAfter([mainFrame]()
+            {
+                wxMessageDialog dlg(mainFrame, i18n("update_reverted"), i18n("update_title"), wxOK | wxICON_WARNING);
+                dlg.SetOKLabel(wxString(i18n("ok")));
+                dlg.ShowModal();
+            });
+    }
 
     return true;
 }
@@ -267,12 +292,22 @@ void Application::OnInitCmdLine(wxCmdLineParser& parser)
         { wxCMD_LINE_OPTION, NULL, "wait-for-pid",  NULL,   wxCMD_LINE_VAL_NUMBER, wxCMD_LINE_PARAM_OPTIONAL },
         { wxCMD_LINE_SWITCH, NULL, "silent",        NULL,   wxCMD_LINE_VAL_NONE ,  wxCMD_LINE_PARAM_OPTIONAL },
         { wxCMD_LINE_OPTION, NULL, "save-path",     NULL,   wxCMD_LINE_VAL_STRING, wxCMD_LINE_PARAM_OPTIONAL },
+        { wxCMD_LINE_SWITCH, NULL, "recien-actualizado",      NULL, wxCMD_LINE_VAL_NONE, wxCMD_LINE_PARAM_OPTIONAL },
+        { wxCMD_LINE_SWITCH, NULL, "actualizacion-revertida", NULL, wxCMD_LINE_VAL_NONE, wxCMD_LINE_PARAM_OPTIONAL },
         { wxCMD_LINE_PARAM,  NULL, NULL,           "params",wxCMD_LINE_VAL_STRING, wxCMD_LINE_PARAM_OPTIONAL | wxCMD_LINE_PARAM_MULTIPLE },
         { wxCMD_LINE_NONE }
     };
 
     parser.SetDesc(cmdLineDesc);
     parser.SetSwitchChars("-");
+}
+
+void Application::OnUnhandledException()
+{
+    // A C++ error that nobody caught. Right after an update and before the start finished, go back to the previous
+    // version (if it is not armed, this does nothing)
+    UpdateChecker::RevertIfArmed();
+    wxApp::OnUnhandledException();
 }
 
 void Application::ActivateOtherInstance()
