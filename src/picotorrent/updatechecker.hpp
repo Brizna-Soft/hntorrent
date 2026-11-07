@@ -33,6 +33,13 @@ namespace Core
         // Removes the staging folder left by an update that did not finish
         static void CleanUp(std::filesystem::path const& appDir);
 
+        // «HNTorrent.exe --probar-inicio»: before installing, the updater starts the new version like this to see if
+        // Windows lets it run (Smart App Control can block programs without a digital signature). In that mode the
+        // program exits right away with ProbeExitCode, before the database, the window or another running copy.
+        static constexpr const wchar_t* ProbeArgument = L"--probar-inicio";
+        static constexpr unsigned long ProbeExitCode = 0x48544F4B; // "HTOK"
+        static bool IsProbeRun();
+
     private:
         struct Manifest
         {
@@ -51,6 +58,10 @@ namespace Core
         };
 
         static void PostToUi(std::shared_ptr<State> const& state, std::function<void()> fn);
+
+        // What happened when the new version was started with --probar-inicio
+        enum class Probe { Started, Blocked, Failed };
+        static Probe ProbeNewVersion(std::filesystem::path const& exe, unsigned long& detail);
 
         void Ask(Manifest const& manifest, std::string const& baseUrl);
         void Install(std::filesystem::path const& staging);

@@ -9,6 +9,7 @@
 #include <vector>
 
 #include <Windows.h>
+#include <shellapi.h>
 #include <winhttp.h>
 
 #include <boost/log/trivial.hpp>
@@ -437,6 +438,64 @@ void UpdateChecker::CleanUp(fs::path const& appDir)
     fs::remove_all(appDir / StagingFolder, ec);
 }
 
+bool UpdateChecker::IsProbeRun()
+{
+    // Exactly «HNTorrent.exe --probar-inicio», nothing else
+    int count = 0;
+    LPWSTR* args = CommandLineToArgvW(GetCommandLineW(), &count);
+
+    if (args == nullptr) { return false; }
+
+    bool probe = count == 2 && wcscmp(args[1], ProbeArgument) == 0;
+    LocalFree(args);
+    return probe;
+}
+
+UpdateChecker::Probe UpdateChecker::ProbeNewVersion(fs::path const& exe, unsigned long& detail)
+{
+    // Started from the staging folder, hidden, with --probar-inicio: the new version only gets as far as being
+    // loaded by Windows (with its libraries) and exits with ProbeExitCode. Nothing of the installation is touched.
+    std::wstring commandLine = fmt::format(L"\"{}\" {}", exe.wstring(), ProbeArgument);
+    STARTUPINFOW si = { sizeof(STARTUPINFOW) };
+    si.dwFlags = STARTF_USESHOWWINDOW;
+    si.wShowWindow = SW_HIDE;
+    PROCESS_INFORMATION pi = {};
+
+    if (!CreateProcessW(exe.c_str(), commandLine.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW, nullptr,
+            exe.parent_path().c_str(), &si, &pi))
+    {
+        detail = GetLastError();
+
+        // 4551 = ERROR_SYSTEM_INTEGRITY_POLICY_VIOLATION (Smart App Control or another application control
+        // policy), 1260 = ERROR_ACCESS_DISABLED_BY_POLICY, 225/226 = the antivirus blocked or removed it
+        bool blocked = detail == 4551 || detail == ERROR_ACCESS_DISABLED_BY_POLICY
+            || detail == ERROR_VIRUS_INFECTED || detail == ERROR_VIRUS_DELETED;
+        return blocked ? Probe::Blocked : Probe::Failed;
+    }
+
+    CloseHandle(pi.hThread);
+
+    DWORD wait = WaitForSingleObject(pi.hProcess, 20000);
+    DWORD code = 0;
+    bool exited = wait == WAIT_OBJECT_0 && GetExitCodeProcess(pi.hProcess, &code);
+
+    if (wait != WAIT_OBJECT_0)
+    {
+        // It did not answer in time: it does not count as working
+        TerminateProcess(pi.hProcess, 1);
+        WaitForSingleObject(pi.hProcess, 5000);
+    }
+
+    CloseHandle(pi.hProcess);
+
+    if (exited && code == ProbeExitCode) { return Probe::Started; }
+
+    detail = exited ? code : WAIT_TIMEOUT;
+
+    // 0xC0000428 = STATUS_INVALID_IMAGE_HASH: Windows let the process start but blocked one of its parts
+    return exited && code == 0xC0000428 ? Probe::Blocked : Probe::Failed;
+}
+
 void UpdateChecker::Check(bool userInitiated)
 {
     if (m_state->busy.exchange(true))
@@ -561,6 +620,8 @@ void UpdateChecker::Ask(Manifest const& manifest, std::string const& baseUrl)
         {
             std::string zip;
             std::string error;
+            Probe probe = Probe::Failed;
+            unsigned long detail = 0;
 
             if (HttpsGet(url, MaxPackageSize, zip, error))
             {
@@ -568,14 +629,15 @@ void UpdateChecker::Ask(Manifest const& manifest, std::string const& baseUrl)
                 {
                     error = "the downloaded file does not match its signature";
                 }
-                else
+                else if (ExtractPackage(zip, staging, error))
                 {
-                    ExtractPackage(zip, staging, error);
+                    // Before touching anything: does Windows let the new version start on this PC?
+                    probe = ProbeNewVersion(staging / ExecutableName, detail);
                 }
             }
 
             PostToUi(state,
-                [this, state, staging, error]()
+                [this, state, staging, error, probe, detail, manifest]()
                 {
                     state->busy = false;
 
@@ -583,6 +645,20 @@ void UpdateChecker::Ask(Manifest const& manifest, std::string const& baseUrl)
                     {
                         BOOST_LOG_TRIVIAL(error) << "Update failed: " << error;
                         ShowError(fmt::format(i18n("update_failed_s"), Utils::toStdWString(error)));
+                        return;
+                    }
+
+                    if (probe != Probe::Started)
+                    {
+                        // Nothing was replaced: the installed version keeps working as before
+                        BOOST_LOG_TRIVIAL(error) << "Update not installed: the new version did not start ("
+                            << (probe == Probe::Blocked ? "blocked by Windows" : "failed") << ", " << detail << ")";
+                        CleanUp(m_env->GetApplicationPath());
+                        ShowError(fmt::format(
+                            i18n(probe == Probe::Blocked ? "update_blocked_by_windows_s" : "update_probe_failed_s"),
+                            Utils::toStdWString(manifest.version),
+                            Utils::toStdWString(pt::BuildInfo::version()),
+                            fmt::format(L"{:#x}", detail)));
                         return;
                     }
 
@@ -679,8 +755,15 @@ void UpdateChecker::Install(fs::path const& staging)
 
     if (!CreateProcessW(exe.c_str(), commandLine.data(), nullptr, nullptr, FALSE, 0, nullptr, dir.c_str(), &si, &pi))
     {
-        // The new version is in place; it will run the next time HNTorrent is opened
-        ShowError(fmt::format(i18n("update_failed_s"), fmt::format(L"start ({})", GetLastError())));
+        // It passed the test, but Windows still did not let it start: go back to the previous version, so that
+        // HNTorrent keeps opening (this running copy is the previous version, now back under its own name)
+        DWORD startError = GetLastError();
+        bool restored = restore(replacements.size());
+        BOOST_LOG_TRIVIAL(error) << "Update installed but the new version did not start (" << startError << ")"
+            << (restored ? ", previous version restored" : ", could not restore");
+        ShowError(restored
+            ? fmt::format(i18n("update_start_failed_restored_s"), fmt::format(L"{:#x}", startError))
+            : fmt::format(i18n("update_restore_failed_s"), fmt::format(L"start ({})", startError)));
         return;
     }
 

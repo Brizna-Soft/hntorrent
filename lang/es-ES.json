@@ -1,4 +1,7 @@
 {
+    "update_blocked_by_windows_s": "Windows no dejó abrir la versión nueva de HNTorrent ({0}). Suele pasar con el «Control inteligente de aplicaciones», que bloquea los programas sin firma digital. No se cambió nada: sigues con la versión {1} y funciona igual. (Código {2})",
+    "update_probe_failed_s": "La versión nueva de HNTorrent ({0}) no arrancó bien en esta PC, así que no se instaló. No se cambió nada: sigues con la versión {1}. (Código {2})",
+    "update_start_failed_restored_s": "La versión nueva se instaló, pero Windows no la dejó abrir. HNTorrent volvió solo a la versión anterior: no perdiste nada. (Código {0})",
     "open_with_hntorrent_not_removed": "No se pudo quitar todo de Windows. Cierra la ventana de Configuración y vuelve a pulsar «Dejar de ofrecerlo»; si sigue pasando, avísanos en Ayuda > Reportar un problema.",
     "open_with_hntorrent_confirm": "HNTorrent va a anotarse en Windows (solo para tu usuario) como un programa que abre los enlaces magnet y los archivos .torrent. No cambia nada de otros programas y no pide permiso de administrador.\n\nDespués se abre Configuración: ahí eliges HNTorrent para «magnet» y para «.torrent». Lo puedes quitar con «Dejar de ofrecerlo».",
     "hntorrent_app_description": "Programa gratis de torrents de Brizna Soft, sin publicidad.",

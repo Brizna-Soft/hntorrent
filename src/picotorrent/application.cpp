@@ -122,6 +122,13 @@ bool Application::OnCmdLineParsed(wxCmdLineParser& parser)
 
 bool Application::OnInit()
 {
+    // Test start of the updater (see UpdateChecker::ProbeNewVersion): Windows already let this program and its
+    // libraries load, which is all that is checked. Exits before the database, the window or another running copy.
+    if (UpdateChecker::IsProbeRun())
+    {
+        ExitProcess(UpdateChecker::ProbeExitCode);
+    }
+
     if (!wxApp::OnInit()) { return false; }
 
     if (m_options.pid > 0)
