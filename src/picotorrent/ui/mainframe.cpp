@@ -411,7 +411,7 @@ void MainFrame::AskAboutUpdateChecks()
         i18n("ask_update_checks_title"),
         wxYES_NO | wxICON_QUESTION);
     dlg.SetExtendedMessage(i18n("ask_update_checks_detail"));
-    dlg.SetYesNoLabels(i18n("ask_update_checks_yes"), i18n("ask_update_checks_no"));
+    dlg.SetYesNoLabels(wxString(i18n("ask_update_checks_yes")), wxString(i18n("ask_update_checks_no")));
 
     bool yes = dlg.ShowModal() == wxID_YES;
 
@@ -912,7 +912,7 @@ void MainFrame::OnHelpOpenLogs(wxCommandEvent&)
     if (!isPlainDirectory(data) || !isPlainDirectory(folder))
     {
         wxMessageDialog dlg(this, i18n("no_logs_yet"), i18n("logs_folder"), wxOK | wxICON_INFORMATION);
-        dlg.SetOKLabel(i18n("ok"));
+        dlg.SetOKLabel(wxString(i18n("ok")));
         dlg.ShowModal();
         return;
     }

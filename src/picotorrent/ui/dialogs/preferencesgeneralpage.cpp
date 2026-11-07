@@ -152,14 +152,14 @@ PreferencesGeneralPage::PreferencesGeneralPage(wxWindow* parent, std::shared_ptr
     openButton->Bind(wxEVT_BUTTON, [this, stopButton](wxCommandEvent&)
         {
             wxMessageDialog ask(this, i18n("open_with_hntorrent_confirm"), i18n("open_with_hntorrent"), wxYES_NO | wxNO_DEFAULT | wxICON_QUESTION);
-            ask.SetYesNoLabels(i18n("open_with_hntorrent_yes"), i18n("cancel"));
+            ask.SetYesNoLabels(wxString(i18n("open_with_hntorrent_yes")), wxString(i18n("cancel")));
             if (ask.ShowModal() != wxID_YES) { return; }
 
             bool ok = Asociaciones::Anotar(i18n("torrent_file_description"), i18n("magnet_link_description"), i18n("hntorrent_app_description"));
             stopButton->Enable(Asociaciones::EstaAnotado());
             wxMessageDialog done(this, ok ? i18n("open_with_hntorrent_done") : i18n("open_with_hntorrent_failed"),
                 i18n("open_with_hntorrent"), wxOK | (ok ? wxICON_INFORMATION : wxICON_WARNING));
-            done.SetOKLabel(i18n("ok"));
+            done.SetOKLabel(wxString(i18n("ok")));
             done.ShowModal();
             if (ok) { Asociaciones::AbrirConfiguracion(); }
         });
@@ -169,7 +169,7 @@ PreferencesGeneralPage::PreferencesGeneralPage(wxWindow* parent, std::shared_ptr
             Asociaciones::Quitar();
             stopButton->Enable(Asociaciones::EstaAnotado());
             wxMessageDialog done(this, i18n("open_with_hntorrent_removed"), i18n("open_with_hntorrent"), wxOK | wxICON_INFORMATION);
-            done.SetOKLabel(i18n("ok"));
+            done.SetOKLabel(wxString(i18n("ok")));
             done.ShowModal();
         });
 

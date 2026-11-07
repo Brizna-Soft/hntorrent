@@ -59,7 +59,7 @@ void Console::CreateFilter(std::string const& input)
         if (!filter && !err.empty())
         {
             wxMessageDialog dlg(GetParent(), err, i18n("filter_error"), wxICON_ERROR | wxOK);
-            dlg.SetOKLabel(i18n("ok"));
+            dlg.SetOKLabel(wxString(i18n("ok")));
             dlg.ShowModal();
             return;
         }
