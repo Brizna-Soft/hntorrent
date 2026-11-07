@@ -302,14 +302,6 @@ void Application::OnInitCmdLine(wxCmdLineParser& parser)
     parser.SetSwitchChars("-");
 }
 
-void Application::OnUnhandledException()
-{
-    // A C++ error that nobody caught. Right after an update and before the start finished, go back to the previous
-    // version (if it is not armed, this does nothing)
-    UpdateChecker::RevertIfArmed();
-    wxApp::OnUnhandledException();
-}
-
 void Application::ActivateOtherInstance()
 {
     json j;
@@ -335,7 +327,13 @@ void Application::WaitForPreviousInstance(long pid)
 {
     HANDLE hProc = OpenProcess(SYNCHRONIZE, FALSE, pid);
     if (hProc == NULL) { return; }
-    // After an update the old version may need a while to save the state of every torrent
-    WaitForSingleObject(hProc, 120000);
+    // After an update the old version may need a while to save the state of every torrent. It waits until it really
+    // ended (up to 15 minutes): starting before that would find it still open, and both would end up closed.
+    DWORD result = WaitForSingleObject(hProc, 15 * 60 * 1000);
     CloseHandle(hProc);
+
+    if (result != WAIT_OBJECT_0)
+    {
+        BOOST_LOG_TRIVIAL(warning) << "The previous instance (" << pid << ") did not end in time";
+    }
 }

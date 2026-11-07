@@ -465,10 +465,17 @@ namespace
 
     // Everything the way back needs, prepared by ArmRevert: if this version crashes, the handler only has to rename
     // files and start a process (no allocations, no wx, no database)
+    struct RevertFile
+    {
+        std::wstring target;   // the new file, in use now
+        std::wstring backup;   // the previous one (.anterior)
+        std::wstring failed;   // where the new one steps aside (.fallida)
+    };
+
     struct RevertPlan
     {
         bool armed = false;
-        std::vector<std::pair<std::wstring, std::wstring>> moves;   // in order: (from, to)
+        std::vector<RevertFile> files;   // the executable always first
         std::wstring exe;
         std::wstring dir;
         std::wstring commandLine;
@@ -478,21 +485,35 @@ namespace
     RevertPlan g_revert;
     std::atomic<bool> g_reverting{ false };
 
+    // Puts one previous file back: the new one steps aside (a running program can be renamed) and the previous one
+    // takes its place. If the second step fails, the first is undone, so the file is never left missing.
+    bool PutBack(RevertFile const& f)
+    {
+        if (!MoveFileExW(f.target.c_str(), f.failed.c_str(), MOVEFILE_REPLACE_EXISTING)) { return false; }
+
+        if (!MoveFileExW(f.backup.c_str(), f.target.c_str(), 0))
+        {
+            MoveFileExW(f.failed.c_str(), f.target.c_str(), 0);
+            return false;
+        }
+
+        return true;
+    }
+
     // Puts the previous files back and opens the previous version, which waits for this process to end and then
-    // explains what happened. Returns true only if the previous version was started.
+    // explains what happened. Returns true only if the previous executable is back and was started.
     bool DoRevert()
     {
         if (!g_revert.armed || g_reverting.exchange(true)) { return false; }
 
-        bool moved = true;
+        // The executable first: if it cannot come back, nothing else is touched and nothing is opened
+        if (g_revert.files.empty() || !PutBack(g_revert.files[0])) { return false; }
 
-        for (auto const& m : g_revert.moves)
+        // The others (translations, notices): best effort, each one undone on its own if it fails
+        for (size_t i = 1; i < g_revert.files.size(); i++)
         {
-            moved = (MoveFileExW(m.first.c_str(), m.second.c_str(), MOVEFILE_REPLACE_EXISTING) != FALSE) && moved;
+            PutBack(g_revert.files[i]);
         }
-
-        // Without the previous executable back in its place there is nothing to open
-        if (GetFileAttributesW(g_revert.exe.c_str()) == INVALID_FILE_ATTRIBUTES) { return false; }
 
         STARTUPINFOW si = { sizeof(STARTUPINFOW) };
         PROCESS_INFORMATION pi = {};
@@ -500,17 +521,14 @@ namespace
         if (!CreateProcessW(g_revert.exe.c_str(), g_revert.commandLine.data(), nullptr, nullptr, FALSE, 0, nullptr,
                 g_revert.dir.c_str(), &si, &pi))
         {
+            // The previous version is in place: it opens the next time HNTorrent is opened
             return false;
         }
 
         CloseHandle(pi.hThread);
         CloseHandle(pi.hProcess);
-
-        // Even if a secondary file (translations, notices) could not come back, the previous program is open
-        if (!moved) { OutputDebugStringW(L"HNTorrent: some previous files could not be put back\n"); }
         return true;
     }
-
     LONG WINAPI RevertOnCrash(EXCEPTION_POINTERS* info)
     {
         DoRevert();
@@ -548,9 +566,8 @@ void UpdateChecker::ArmRevert()
     // Only if the previous version is there to go back to
     if (exe.empty() || !fs::is_regular_file(previousExe, ec)) { return; }
 
-    // First every new file steps aside (a running program can be renamed), then the previous ones come back
-    std::vector<std::pair<std::wstring, std::wstring>> aside;
-    std::vector<std::pair<std::wstring, std::wstring>> back;
+    // PackageFiles starts with the executable, so it is the first one to come back
+    std::vector<RevertFile> files;
 
     for (const char* name : PackageFiles)
     {
@@ -562,12 +579,10 @@ void UpdateChecker::ArmRevert()
 
         fs::path failed = target;
         failed += FailedSuffix;
-        aside.emplace_back(target.wstring(), failed.wstring());
-        back.emplace_back(backup.wstring(), target.wstring());
+        files.push_back({ target.wstring(), backup.wstring(), failed.wstring() });
     }
 
-    g_revert.moves = aside;
-    g_revert.moves.insert(g_revert.moves.end(), back.begin(), back.end());
+    g_revert.files = files;
     g_revert.exe = exe.wstring();
     g_revert.dir = dir.wstring();
     g_revert.commandLine = fmt::format(L"\"{}\" --wait-for-pid={} --actualizacion-revertida", exe.wstring(), GetCurrentProcessId());
@@ -616,10 +631,41 @@ UpdateChecker::Probe UpdateChecker::ProbeNewVersion(fs::path const& exe, unsigne
         return Probe::Failed;
     }
 
-    if (!CreateProcessW(exe.c_str(), commandLine.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW | CREATE_SUSPENDED,
-            nullptr, exe.parent_path().c_str(), &si, &pi))
+    // The test start is born inside the job (PROC_THREAD_ATTRIBUTE_JOB_LIST): there is no moment in which it exists
+    // outside of it
+    SIZE_T attributesSize = 0;
+    InitializeProcThreadAttributeList(nullptr, 1, 0, &attributesSize);
+    std::vector<char> attributesBuffer(attributesSize);
+    auto attributes = reinterpret_cast<LPPROC_THREAD_ATTRIBUTE_LIST>(attributesBuffer.data());
+
+    if (attributesSize == 0 || !InitializeProcThreadAttributeList(attributes, 1, 0, &attributesSize))
     {
         detail = GetLastError();
+        CloseHandle(job);
+        return Probe::Failed;
+    }
+
+    if (!UpdateProcThreadAttribute(attributes, 0, PROC_THREAD_ATTRIBUTE_JOB_LIST, &job, sizeof(job), nullptr, nullptr))
+    {
+        detail = GetLastError();
+        DeleteProcThreadAttributeList(attributes);
+        CloseHandle(job);
+        return Probe::Failed;
+    }
+
+    STARTUPINFOEXW siex = {};
+    siex.StartupInfo = si;
+    siex.StartupInfo.cb = sizeof(siex);
+    siex.lpAttributeList = attributes;
+
+    BOOL created = CreateProcessW(exe.c_str(), commandLine.data(), nullptr, nullptr, FALSE,
+        CREATE_NO_WINDOW | EXTENDED_STARTUPINFO_PRESENT, nullptr, exe.parent_path().c_str(), &siex.StartupInfo, &pi);
+    DWORD createError = created ? ERROR_SUCCESS : GetLastError();
+    DeleteProcThreadAttributeList(attributes);
+
+    if (!created)
+    {
+        detail = createError;
 
         CloseHandle(job);
 
@@ -630,20 +676,6 @@ UpdateChecker::Probe UpdateChecker::ProbeNewVersion(fs::path const& exe, unsigne
         return blocked ? Probe::Blocked : Probe::Failed;
     }
 
-    // Into the job before it runs a single instruction, then it may start. If it cannot go into the job, it never
-    // runs: it is ended while still paused.
-    if (!AssignProcessToJobObject(job, pi.hProcess))
-    {
-        detail = GetLastError();
-        TerminateProcess(pi.hProcess, 1);
-        WaitForSingleObject(pi.hProcess, 5000);
-        CloseHandle(pi.hThread);
-        CloseHandle(pi.hProcess);
-        CloseHandle(job);
-        return Probe::Failed;
-    }
-
-    ResumeThread(pi.hThread);
     CloseHandle(pi.hThread);
 
     DWORD wait = WaitForSingleObject(pi.hProcess, 20000);

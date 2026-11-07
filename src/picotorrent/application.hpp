@@ -28,8 +28,6 @@ namespace API
         virtual bool OnCmdLineParsed(wxCmdLineParser& parser) wxOVERRIDE;
         virtual bool OnInit() wxOVERRIDE;
         virtual void OnInitCmdLine(wxCmdLineParser&) wxOVERRIDE;
-        virtual void OnUnhandledException() wxOVERRIDE;
-
     private:
         void ActivateOtherInstance();
         void WaitForPreviousInstance(long pid);
